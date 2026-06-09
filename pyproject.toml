@@ -1,0 +1,31 @@
+[project]
+name = "tinytalk"
+description = "OpenAI-compatible NeuTTS server for low-power devices"
+requires-python = ">=3.12"
+dynamic = ["version"]
+authors = [{ email = "calebwastler@gmail.com" }]
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "numpy",
+  "spacy",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "httpx",
+]
+integration = [
+  "neutts[all]",
+]
+
+[tool.setuptools.packages.find]
+include = ["tinytalk*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "tinytalk.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
