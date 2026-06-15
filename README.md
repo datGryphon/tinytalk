@@ -81,3 +81,5 @@ pytest tests/integration
 ```
 
 Artifacts are written under `test_artifacts/`.
+
+Sample in tests/voice taken from the [NeuTTS samples](https://github.com/neuphonic/neutts/tree/main/samples).

@@ -14,6 +14,8 @@ class Settings:
     port: int = 9002
     max_chars_per_chunk: int = 180
     inter_chunk_silence_ms: int = 60
+    temperature: float = 1.0
+    repeat_penalty: float = 1.0
 
 
 def load_settings() -> Settings:
@@ -31,6 +33,8 @@ def load_settings() -> Settings:
         inter_chunk_silence_ms=_int_env(
             "TINYTALK_INTER_CHUNK_SILENCE_MS", Settings.inter_chunk_silence_ms
         ),
+        temperature=_float_env("TINYTALK_TEMPERATURE", Settings.temperature),
+        repeat_penalty=_float_env("TINYTALK_REPEAT_PENALTY", Settings.repeat_penalty),
     )
 
 
@@ -42,3 +46,13 @@ def _int_env(name: str, default: int) -> int:
         return int(raw)
     except ValueError as exc:
         raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number, got {raw!r}") from exc

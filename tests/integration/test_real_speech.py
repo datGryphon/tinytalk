@@ -4,7 +4,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from tinytalk import server
 from tinytalk.chunking import split_text
+from tinytalk.config import Settings
+from tinytalk.engine import TinyTalkEngine
 
 pytestmark = pytest.mark.skipif(
     os.getenv("TINYTALK_RUN_INTEGRATION") != "1",
@@ -12,34 +15,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-CASES = {
-    "short": "Okay.",
-    "multi_sentence": "This is the first sentence. This is the second sentence. This is the third sentence.",
-    "abbreviations": (
-        "Dr. Ada reviewed fig. 2 with Mr. Smith at 3:00 p.m. and confirmed the service was ready."
-    ),
-    "initials_and_quotes": (
-        'J. R. asked, "Is the service ready?" The answer was yes. '
-        "The team shipped the update after one more smoke test."
-    ),
-    "long_commas": (
-        "This sentence is intentionally long, with several comma-separated clauses, "
-        "so that the chunker can split at softer phrase boundaries, while still "
-        "preserving enough text for a natural sounding utterance."
-    ),
-    "long_no_punctuation": (
-        "today we need the server to handle a long spoken update without punctuation "
-        "so it should wrap on normal spaces preserve the voice across each generated "
-        "piece avoid dropping the final thought and still sound like one coherent reply "
-        "when a caller sends a rough transcript or a quick dictated note"
-    ),
-    "digest": (
-        "Here is a concise digest of the current task. The system should split long input "
-        "server-side, synthesize each chunk with the same reference voice, and insert short "
-        "pauses between chunks. This test is meant to expose truncation, unnatural transitions, "
-        "and pathological long-sentence behavior before another service depends on the server."
-    ),
-}
+CORPUS = Path(__file__).parent.parent / "corpus"
+CASES = {p.stem: " ".join(p.read_text().split()) for p in sorted(CORPUS.glob("*.txt"))}
 
 
 def test_sentencizer_edge_cases_chunk_cleanly():
@@ -51,13 +28,15 @@ def test_sentencizer_edge_cases_chunk_cleanly():
     assert split_text(CASES["abbreviations"], 180) == [CASES["abbreviations"]]
 
 
-def test_real_speech_outputs_wavs():
-    from tinytalk.server import app
+def test_real_speech_outputs_wavs(monkeypatch):
+    voices = Path(__file__).parent.parent / "voices"
+    settings = Settings(ref_codes=voices / "jo.pt", ref_text=voices / "jo.txt")
+    monkeypatch.setattr(server, "engine", TinyTalkEngine(settings))
 
     artifact_dir = Path("test_artifacts")
     artifact_dir.mkdir(exist_ok=True)
 
-    with TestClient(app) as client:
+    with TestClient(server.app) as client:
         for name, text in CASES.items():
             response = client.post(
                 "/v1/audio/speech",

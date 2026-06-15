@@ -1,0 +1,1 @@
+J. R. asked, "Is the service ready?" The answer was yes. The team shipped the update after one more smoke test.

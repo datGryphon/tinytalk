@@ -12,6 +12,8 @@ let
     "fastapi"
     "uvicorn[standard]"
     "spacy"
+    "librosa"
+    "praat-parselmouth"
   ];
   prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
     builtins.replaceStrings
@@ -78,6 +80,18 @@ in
       description = "Zero-audio pause inserted between synthesized chunks.";
     };
 
+    temperature = lib.mkOption {
+      type = lib.types.float;
+      default = 1.0;
+      description = "Sampling temperature for the NeuTTS backbone (1.0 = NeuTTS default). Lower is more stable with less looping. Tune per voice or deployment.";
+    };
+
+    repeatPenalty = lib.mkOption {
+      type = lib.types.float;
+      default = 1.0;
+      description = "Repeat penalty for the NeuTTS backbone, discouraging looped/duplicated speech.";
+    };
+
     runtimeIndexUrl = lib.mkOption {
       type = lib.types.str;
       default = "https://download.pytorch.org/whl/cpu";
@@ -121,6 +135,8 @@ in
         TINYTALK_PORT = toString cfg.port;
         TINYTALK_MAX_CHARS_PER_CHUNK = toString cfg.maxCharsPerChunk;
         TINYTALK_INTER_CHUNK_SILENCE_MS = toString cfg.interChunkSilenceMs;
+        TINYTALK_TEMPERATURE = toString cfg.temperature;
+        TINYTALK_REPEAT_PENALTY = toString cfg.repeatPenalty;
         TINYTALK_PYTHON_TARGET = pythonTarget;
         TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
         TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;

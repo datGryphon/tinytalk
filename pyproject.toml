@@ -9,15 +9,17 @@ dependencies = [
   "uvicorn[standard]",
   "numpy",
   "spacy",
+  "librosa",
+  "praat-parselmouth",
+  "neutts[all]",
+  "torch",
 ]
 
 [project.optional-dependencies]
 test = [
   "pytest",
   "httpx",
-]
-integration = [
-  "neutts[all]",
+  "openai-whisper",
 ]
 
 [tool.setuptools.packages.find]

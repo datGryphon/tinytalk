@@ -1,0 +1,11 @@
+The reference voice files in this directory (jo.pt, jo.txt) are sample assets
+from Neuphonic's NeuTTS project, redistributed here unmodified:
+
+  https://github.com/neuphonic/neutts/tree/main/samples
+
+They are licensed under the NeuTTS Open License v1.0 (Neuphonic Limited), not
+the MIT license that covers the rest of this repository. A verbatim copy of that
+license is in NeuTTS-LICENSE.txt in this directory.
+
+The probe texts under tests/corpus/ are separate public-domain works (Shakespeare,
+Poe, Twain) and are not covered by the NeuTTS license.

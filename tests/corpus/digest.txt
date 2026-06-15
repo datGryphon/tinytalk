@@ -1,0 +1,1 @@
+Here is a concise digest of the current task. The system should split long input server-side, synthesize each chunk with the same reference voice, and insert short pauses between chunks. This test is meant to expose truncation, unnatural transitions, and pathological long-sentence behavior before another service depends on the server.

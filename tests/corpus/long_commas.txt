@@ -1,0 +1,1 @@
+This sentence is intentionally long, with several comma-separated clauses, so that the chunker can split at softer phrase boundaries, while still preserving enough text for a natural sounding utterance.

@@ -1,0 +1,1 @@
+today we need the server to handle a long spoken update without punctuation so it should wrap on normal spaces preserve the voice across each generated piece avoid dropping the final thought and still sound like one coherent reply when a caller sends a rough transcript or a quick dictated note

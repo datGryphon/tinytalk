@@ -1,6 +1,8 @@
+import numpy as np
 from fastapi.testclient import TestClient
 
 from tinytalk import server
+from tinytalk.engine import SynthesisResult
 
 
 class FakeEngine:
@@ -8,9 +10,6 @@ class FakeEngine:
     last_text = None
 
     def synthesize(self, text):
-        import numpy as np
-        from tinytalk.engine import SynthesisResult
-
         self.last_text = text
         return SynthesisResult(
             audio=np.zeros(2400, dtype=np.float32),
