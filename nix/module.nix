@@ -92,6 +92,60 @@ in
       description = "Repeat penalty for the NeuTTS backbone, discouraging looped/duplicated speech.";
     };
 
+    repeatPenaltyRerollStep = lib.mkOption {
+      type = lib.types.float;
+      default = 0.10;
+      description = "Incremental repeat-penalty added per retry attempt in the per-chunk reroll loop.";
+    };
+
+    maxRetries = lib.mkOption {
+      type = lib.types.ints.between 0 100;
+      default = 2;
+      description = "Maximum number of retry attempts per chunk.";
+    };
+
+    werEndpoint = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Base URL for WER transcription evaluation. Empty string disables live transcription and falls back to chunk confidence.";
+    };
+
+    werThreshold = lib.mkOption {
+      type = lib.types.float;
+      default = 0.25;
+      description = "WER threshold above which a chunk is accepted. Lower scores mean the chunk is kept as-is from the reroll loop.";
+    };
+
+    watermark = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Enable perth audio watermarking. Disabled by default because the perth
+        watermarker leaks ~44 MB per synthesis call (PyTorch CPU caching allocator
+        retains freed tensors). Only enable if you need provenance watermarks.
+      '';
+    };
+
+    memoryHigh = lib.mkOption {
+      type = lib.types.str;
+      default = "5000M";
+      description = ''
+        systemd MemoryHigh soft cap for the service. Safety net against the
+        perth-watermarker memory leak; harmless headroom when watermarking is
+        disabled.
+      '';
+    };
+
+    memoryMax = lib.mkOption {
+      type = lib.types.str;
+      default = "6000M";
+      description = ''
+        systemd MemoryMax hard cap. With Restart=on-failure (set below) the
+        service is recycled if it hits this, bounding the perth-watermarker
+        leak.
+      '';
+    };
+
     runtimeIndexUrl = lib.mkOption {
       type = lib.types.str;
       default = "https://download.pytorch.org/whl/cpu";
@@ -137,6 +191,11 @@ in
         TINYTALK_INTER_CHUNK_SILENCE_MS = toString cfg.interChunkSilenceMs;
         TINYTALK_TEMPERATURE = toString cfg.temperature;
         TINYTALK_REPEAT_PENALTY = toString cfg.repeatPenalty;
+        TINYTALK_REPEAT_PENALTY_REROLL_STEP = toString cfg.repeatPenaltyRerollStep;
+        TINYTALK_MAX_RETRIES = toString cfg.maxRetries;
+        TINYTALK_WER_ENDPOINT = cfg.werEndpoint;
+        TINYTALK_WER_THRESHOLD = toString cfg.werThreshold;
+        TINYTALK_WATERMARK = lib.boolToString cfg.watermark;
         TINYTALK_PYTHON_TARGET = pythonTarget;
         TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
         TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
@@ -158,6 +217,8 @@ in
         Restart = "on-failure";
         RestartSec = 3;
         TimeoutStartSec = "15min";
+        MemoryHigh = cfg.memoryHigh;
+        MemoryMax = cfg.memoryMax;
         StateDirectory = "tinytalk";
         StateDirectoryMode = "0750";
       };
