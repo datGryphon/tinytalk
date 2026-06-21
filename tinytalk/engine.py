@@ -124,29 +124,36 @@ class TinyTalkEngine:
                     self.tts, repeat_penalty_override=rp
                 )
 
-                wav = np.asarray(
-                    self.tts.infer(chunk, self.ref_codes, self.ref_text)
-                ).squeeze()
+                try:
+                    wav = np.asarray(
+                        self.tts.infer(chunk, self.ref_codes, self.ref_text)
+                    ).squeeze()
 
-                wav = trim_edge_silence(
-                    wav,
-                    self.sample_rate,
-                    leading=index > 0,
-                    trailing=index < len(chunks) - 1,
+                    wav = trim_edge_silence(
+                        wav,
+                        self.sample_rate,
+                        leading=index > 0,
+                        trailing=index < len(chunks) - 1,
+                    )
+
+                    wav = loudness_normalize(wav)
+                    wav = peak_limit(wav)
+                    wav = edge_fade(wav, 3.0, self.sample_rate)
+
+                    wer = self._chunk_wer(wav, chunk)
+                    if wer < best_wer:
+                        best_wer = wer
+                        best_audio = wav
+                    if wer <= self.settings.wer_threshold:
+                        break
+                except ValueError:
+                    pass
+
+            if best_audio is None:
+                raise RuntimeError(
+                    f"All {num_attempts} attempts produced no speech tokens for chunk: {chunk!r}"
                 )
-
-                wav = loudness_normalize(wav)
-                wav = peak_limit(wav)
-                wav = edge_fade(wav, 3.0, self.sample_rate)
-
-                wer = self._chunk_wer(wav, chunk)
-                if wer < best_wer:
-                    best_wer = wer
-                    best_audio = wav
-                if wer <= self.settings.wer_threshold:
-                    break
-
-            wav = best_audio if best_audio is not None else np.zeros(0, dtype=np.float32)
+            wav = best_audio
 
             # Smooth pitch across boundaries: nudge each chunk toward the previous
             # chunk's pitch, letting it drift naturally over long text.
