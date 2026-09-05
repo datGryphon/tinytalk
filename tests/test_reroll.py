@@ -136,8 +136,8 @@ class TestBestOfNByWer:
         def fake_wer(wav, text):
             rms = float(np.sqrt(np.mean(wav.astype(np.float64)**2)))
             if rms < 0.01:
-                return 0.8  # bad (silent)
-            return 0.1  # good
+                return 0.8, "confidence", False  # bad (silent)
+            return 0.1, "confidence", False  # good
 
         with patch.object(engine, "_chunk_wer", side_effect=fake_wer):
             result = engine.synthesize("hello world test")
@@ -173,14 +173,98 @@ class TestEarlyExit:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return 0.1  # below threshold -> break immediately
-            return 1.0
+                return 0.1, "confidence", False  # below threshold -> break immediately
+            return 1.0, "confidence", False
 
         with patch.object(engine, "_chunk_wer", side_effect=fake_wer):
             engine.synthesize("hello world test")
 
         assert call_count == 1
         engine.tts.infer.assert_called_once()
+
+
+# ── early-accept timing ──────────────────────────────────────────────────────
+
+
+class TestEarlyAcceptTiming:
+
+    def _timing_engine(self, max_retries: int = 2) -> TinyTalkEngine:
+        settings = Settings(
+            max_retries=max_retries,
+            repeat_penalty=1.0,
+            repeat_penalty_reroll_step=0.10,
+            wer_endpoint="",
+            wer_threshold=0.25,
+            ref_codes=Path(__file__).parent / "voices" / "jo.pt",
+            ref_text=Path(__file__).parent / "voices" / "jo.txt",
+        )
+        engine = _make_engine(settings)
+        engine.tts = MagicMock()
+        engine.tts.infer = MagicMock(return_value=_good_audio())
+        return engine
+
+    def test_single_accept_is_recorded_counted_and_marked(self):
+        """An attempt that passes on the first try must appear in timing detail,
+        be marked accepted, be counted in the chunk attempt total, and carry
+        non-zero measured timings."""
+        engine = self._timing_engine()
+
+        with patch.object(engine, "_chunk_wer", side_effect=lambda w, t: (0.1, "confidence", False)):
+            result = engine.synthesize("hello world test")
+
+        assert result.timing is not None
+        chunk = result.timing.chunks[0]
+        assert chunk["attempts"] == 1  # not 0 — the accepted attempt must be counted
+        accepted = [a for a in chunk["attempts_detail"] if a["accepted"]]
+        assert len(accepted) == 1
+        assert accepted[0]["attempt"] == 0
+        assert accepted[0]["wer"] == 0.1
+        assert accepted[0]["wer_source"] == "confidence"
+        assert accepted[0]["wer_fallback"] is False
+        assert accepted[0]["repeat_penalty"] == 1.0  # base repeat_penalty
+        assert accepted[0]["t_infer"] >= 0.0
+        assert accepted[0]["t_dsp"] > 0.0  # real DSP work was measured
+        assert accepted[0]["t_wer_check"] >= 0.0
+        assert chunk["duration"] > 0.0
+
+    def test_reroll_then_accept_records_both_attempts(self):
+        """A rerolled attempt followed by an accepted one: both attempts are
+        recorded, exactly one is accepted (the second), the chunk total is 2,
+        and the accepted attempt carries the escalated repeat_penalty."""
+        engine = self._timing_engine()
+
+        calls = {"n": 0}
+
+        def fake_wer(wav, text):
+            calls["n"] += 1
+            # first attempt above threshold -> reroll; second below -> accept
+            return (0.5 if calls["n"] == 1 else 0.1, "whisper", False)
+
+        with patch.object(engine, "_chunk_wer", side_effect=fake_wer):
+            result = engine.synthesize("hello world test")
+
+        chunk = result.timing.chunks[0]
+        assert chunk["attempts"] == 2  # both attempts counted (bug undercounted to 1)
+        assert len(chunk["attempts_detail"]) == 2
+        assert chunk["attempts_detail"][0]["accepted"] is False  # rerolled
+        accepted = [a for a in chunk["attempts_detail"] if a["accepted"]]
+        assert len(accepted) == 1
+        assert accepted[0]["attempt"] == 1
+        assert accepted[0]["wer"] == 0.1
+        assert accepted[0]["wer_source"] == "whisper"
+        assert accepted[0]["repeat_penalty"] == 1.1  # base + 1 * reroll_step
+
+    def test_server_total_attempts_counts_accepted(self):
+        """The accepted attempt contributes to the request attempt total seen by
+        the server (server sums chunk.attempts)."""
+        engine = self._timing_engine()
+
+        with patch.object(engine, "_chunk_wer", side_effect=lambda w, t: (0.1, "confidence", False)):
+            result = engine.synthesize("hello world test")
+
+        assert result.timing is not None
+        assert result.timing.wer_fallbacks == 0
+        assert sum(chunk["attempts"] for chunk in result.timing.chunks) == 1
 
 
 # ── exhaust retries ──────────────────────────────────────────────────────────
@@ -218,8 +302,8 @@ class TestExhaustRetries:
         def fake_wer(wav, text):
             rms = float(np.sqrt(np.mean(wav.astype(np.float64)**2)))
             if rms < 0.01:
-                return 1.0
-            return 0.05  # above threshold (0.0) -> no early exit, but keeps best
+                return 1.0, "confidence", False
+            return 0.05, "confidence", False  # above threshold (0.0) -> no early exit, but keeps best
 
         with patch.object(engine, "_chunk_wer", side_effect=fake_wer):
             result = engine.synthesize("hello world test")
@@ -253,7 +337,7 @@ class TestFailOpen:
         # With wer_endpoint="", _chunk_wer returns 1.0 - chunk_confidence
         # good_audio -> confidence > 0, so WER < 1.0
         with patch.object(engine, "_chunk_wer") as mock_wer:
-            mock_wer.return_value = 0.3
+            mock_wer.return_value = (0.3, "confidence", False)
             result = engine.synthesize("hello world test")
             mock_wer.assert_called_once()
         assert len(result.audio) > 0
