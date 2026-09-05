@@ -21,6 +21,9 @@ let
       [ "${python}" "${pkgs.uv}" ]
       (builtins.readFile ./tinytalk-prestart.sh)
   );
+  requirementsFile = pkgs.writeText "tinytalk-runtime-requirements.txt" (
+    lib.concatStringsSep "\n" cfg.runtimePackages + "\n"
+  );
 in
 {
   options.services.tinytalk = {
@@ -199,7 +202,7 @@ in
         TINYTALK_PYTHON_TARGET = pythonTarget;
         TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
         TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
-        TINYTALK_RUNTIME_PACKAGES = lib.concatStringsSep " " cfg.runtimePackages;
+        TINYTALK_RUNTIME_REQUIREMENTS = toString requirementsFile;
         PYTHONPATH = "${self.outPath}:${pythonTarget}";
         LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
         HOME = "/var/lib/tinytalk";

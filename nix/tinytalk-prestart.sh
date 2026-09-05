@@ -3,7 +3,7 @@ set -euo pipefail
 
 PYTHON_TARGET="${TINYTALK_PYTHON_TARGET:?}"
 MARKER="$PYTHON_TARGET/.spec"
-SPEC="${TINYTALK_PIP_INDEX_URL:-}|${TINYTALK_PIP_EXTRA_INDEX_URLS:-}|${TINYTALK_RUNTIME_PACKAGES:?}"
+SPEC="${TINYTALK_PIP_INDEX_URL:-}|${TINYTALK_PIP_EXTRA_INDEX_URLS:-}|${TINYTALK_RUNTIME_REQUIREMENTS:?}"
 
 for path in "${TINYTALK_REF_CODES:?}" "${TINYTALK_REF_TEXT:?}"; do
   [ -r "$path" ] || { echo "tinytalk: unreadable: $path" >&2; exit 1; }
@@ -26,6 +26,6 @@ done
   --target "$PYTHON_TARGET" \
   ${TINYTALK_PIP_INDEX_URL:+--index-url "$TINYTALK_PIP_INDEX_URL"} \
   ${EXTRA[@]+"${EXTRA[@]}"} \
-  ${TINYTALK_RUNTIME_PACKAGES}
+  -r "$TINYTALK_RUNTIME_REQUIREMENTS"
 
 printf '%s' "$SPEC" > "$MARKER"
