@@ -247,7 +247,6 @@ class TinyTalkEngine:
             chunk_timings.append(
                 {
                     "index": index,
-                    "text": chunk,
                     "attempts": len(attempt_details),
                     "duration": float(len(wav) / self.sample_rate),
                     "repeat_penalty": accepted_repeat_penalty,

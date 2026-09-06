@@ -71,16 +71,43 @@ async def health() -> Response:
 @app.post("/v1/audio/speech")
 async def create_speech(payload: SpeechRequest) -> Response:
     request_start = time.perf_counter()
-    async with infer_lock:
-        result = await run_in_threadpool(engine.synthesize, payload.input)
+    result = None
+    error: Exception | None = None
+    try:
+        async with infer_lock:
+            result = await run_in_threadpool(engine.synthesize, payload.input)
+        wav = to_wav_bytes(result.audio, result.sample_rate)
+        body, media_type = await run_in_threadpool(
+            encode_audio, wav, payload.response_format
+        )
+    except Exception as exc:
+        error = exc
 
-    wav = to_wav_bytes(result.audio, result.sample_rate)
-    body, media_type = await run_in_threadpool(
-        encode_audio, wav, payload.response_format
-    )
-    # Full normal-handler wall time: time waiting on infer_lock, synthesis, and
-    # WAV construction + encoding.
+    # Full handler wall time: time waiting on infer_lock, synthesis, WAV
+    # construction, and encoding — measured whether or not the request failed.
     total_seconds = time.perf_counter() - request_start
+
+    if error is not None:
+        # Failure observability: one structured record even on failure. Report
+        # only what is safely available (synthesis yields a chunk count); make
+        # everything else null rather than fabricating it. The error indicator
+        # is the exception type name only — never its message, which may carry
+        # user text, and never the input itself.
+        log.info(
+            json.dumps(
+                {
+                    "elapsed": total_seconds,
+                    "error": type(error).__name__,
+                    "chunks": len(result.chunks) if result is not None else None,
+                    "audio_seconds": None,
+                    "rtf": None,
+                    "attempts": None,
+                    "wer_fallbacks": None,
+                    "timing": None,
+                }
+            )
+        )
+        raise error
 
     timing = result.timing
     chunk_count = len(result.chunks)

@@ -1,12 +1,15 @@
 import json
 import logging
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from tinytalk import server
-from tinytalk.engine import RequestTiming, SynthesisResult
+from tinytalk.config import Settings
+from tinytalk.engine import RequestTiming, TinyTalkEngine, SynthesisResult
 
 
 class FakeEngine:
@@ -86,7 +89,6 @@ def _make_timing() -> RequestTiming:
         chunks=[
             {
                 "index": 0,
-                "text": "chunk one here",
                 "attempts": 1,
                 "duration": 1.0,
                 "repeat_penalty": 1.0,
@@ -110,7 +112,6 @@ def _make_timing() -> RequestTiming:
             },
             {
                 "index": 1,
-                "text": "chunk two here now",
                 "attempts": 2,
                 "duration": 1.5,
                 "repeat_penalty": 1.1,
@@ -215,3 +216,149 @@ def test_timing_logged_as_json_line(monkeypatch, caplog):
     assert detail[0]["accepted"] is False
     assert detail[1]["accepted"] is True
     assert detail[1]["wer_fallback"] is True
+
+
+def _good_audio() -> np.ndarray:
+    """Non-silent audio at normal RMS so chunk_confidence is high (accepts easily)."""
+    sr = 24_000
+    dur = int(sr * (14 / 14.0))
+    return (np.sin(np.linspace(0, 2 * np.pi * 440, dur)) * (0.08 / (1 / (2**0.5)))).astype(
+        np.float32
+    )
+
+
+def _real_engine_with_fake_tts() -> TinyTalkEngine:
+    """A real engine with a fake NeuTTS backbone so synthesize succeeds offline."""
+    voices = Path(__file__).parent / "voices"
+    settings = Settings(
+        ref_codes=voices / "jo.pt",
+        ref_text=voices / "jo.txt",
+        wer_endpoint="",
+        wer_threshold=1.0,  # accept the first good attempt
+        max_retries=0,
+    )
+    engine = TinyTalkEngine(settings)
+    engine.ref_codes = [1, 2, 3]
+    engine.ref_text = "test reference"
+    engine.sample_rate = 24_000
+    engine.tts = MagicMock()
+    engine.tts.infer = MagicMock(return_value=_good_audio())
+    # Skip model download: the lifespan calls load(), which would hit the network.
+    engine.load = lambda: None
+    return engine
+
+
+def _timing_records(caplog):
+    """Structured timing JSON records emitted by the tinytalk.server logger."""
+    records = []
+    for record in caplog.records:
+        if record.name != "tinytalk.server":
+            continue
+        try:
+            payload = json.loads(record.getMessage())
+        except ValueError:
+            continue
+        if "elapsed" in payload:
+            records.append(payload)
+    return records
+
+
+def test_success_log_does_not_contain_input_text(monkeypatch, caplog):
+    """A successful request logs timing but never the user input text."""
+    secret = "QUOKKAUNIQUE55"
+    monkeypatch.setattr(server, "engine", _real_engine_with_fake_tts())
+    with caplog.at_level(logging.INFO, logger="tinytalk.server"):
+        caplog.clear()
+        with TestClient(server.app) as client:
+            res = client.post(
+                "/v1/audio/speech", json={"input": f"alpha {secret} beta"}
+            )
+    assert res.status_code == 200
+
+    records = _timing_records(caplog)
+    assert len(records) == 1
+    blob = json.dumps(records[0])
+    assert secret not in blob
+
+
+def test_synthesis_failure_logs_error_without_input(monkeypatch, caplog):
+    """A synthesis failure logs exactly one record with a safe error indicator,
+    null metrics, and no user text — even when the exception message contains it.
+    The existing 500 HTTP behavior is preserved."""
+    secret = "NGUNUNIQUE33"
+
+    class FailingSynthEngine:
+        loaded = True
+
+        def synthesize(self, text):
+            raise RuntimeError(f"boom involving {text!r}")
+
+        def load(self):
+            self.loaded = True
+
+    monkeypatch.setattr(server, "engine", FailingSynthEngine())
+    with caplog.at_level(logging.INFO, logger="tinytalk.server"):
+        caplog.clear()
+        with TestClient(server.app, raise_server_exceptions=False) as client:
+            res = client.post(
+                "/v1/audio/speech", json={"input": f"hello {secret} world"}
+            )
+    assert res.status_code == 500
+
+    records = _timing_records(caplog)
+    assert len(records) == 1
+    record = records[0]
+    assert record["error"] == "RuntimeError"
+    assert record["elapsed"] >= 0.0
+    # Synthesis produced no result, so nothing else is reported (null, not 0).
+    assert record["chunks"] is None
+    assert record["audio_seconds"] is None
+    assert record["timing"] is None
+    blob = json.dumps(record)
+    assert secret not in blob
+
+
+def test_encoding_failure_logs_error_without_input(monkeypatch, caplog):
+    """An encoding failure after successful synthesis still logs one record with
+    the safely available chunk count, null timing metrics, and no user text."""
+    secret = "PLPKUMUNIQUE21"
+
+    class OkSynthEngine:
+        loaded = True
+
+        def synthesize(self, text):
+            return SynthesisResult(
+                audio=np.zeros(2400, dtype=np.float32),
+                sample_rate=24_000,
+                chunks=[text],
+                timing=None,
+            )
+
+        def load(self):
+            self.loaded = True
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("ffmpeg missing")
+
+    engine = OkSynthEngine()
+    monkeypatch.setattr(server, "engine", engine)
+    monkeypatch.setattr(server, "encode_audio", boom)
+    with caplog.at_level(logging.INFO, logger="tinytalk.server"):
+        caplog.clear()
+        with TestClient(server.app, raise_server_exceptions=False) as client:
+            res = client.post(
+                "/v1/audio/speech", json={"input": f"hello {secret} world"}
+            )
+    assert res.status_code == 500
+
+    records = _timing_records(caplog)
+    assert len(records) == 1
+    record = records[0]
+    assert record["error"] == "RuntimeError"
+    assert record["elapsed"] >= 0.0
+    # Synthesis succeeded, so the chunk count is reported; timing metrics are null.
+    assert record["chunks"] == 1
+    assert record["audio_seconds"] is None
+    assert record["timing"] is None
+    blob = json.dumps(record)
+    assert secret not in blob

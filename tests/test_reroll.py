@@ -5,6 +5,7 @@ scores each with _chunk_wer (WER), keeps the lowest-WER attempt, early-exits
 when wer <= wer_threshold.
 """
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -385,3 +386,37 @@ class TestFailOpen:
         # All attempts get WER 1.0 (silent -> confidence 0) -> no early exit
         result = engine.synthesize("hello world test")
         assert engine.tts.infer.call_count == 2  # 1 retry + initial
+
+
+# ── timing redaction ─────────────────────────────────────────────────────────
+
+
+class TestTimingRedaction:
+
+    def test_timing_chunks_exclude_user_text(self):
+        """Timing carries no raw chunk text: only identification (index) and
+        per-attempt metrics survive, so structured logs never leak user input."""
+        secret = "ZEBRAUNIQUE99"
+        text = f"alpha beta {secret} gamma delta"
+        engine = _make_engine(
+            Settings(
+                max_retries=0,
+                wer_endpoint="",
+                wer_threshold=1.0,  # accept the first good attempt
+                ref_codes=Path(__file__).parent / "voices" / "jo.pt",
+                ref_text=Path(__file__).parent / "voices" / "jo.txt",
+            )
+        )
+        engine.tts = MagicMock()
+        engine.tts.infer = MagicMock(return_value=_good_audio())
+
+        result = engine.synthesize(text)
+        assert result.timing is not None
+
+        for chunk in result.timing.chunks:
+            assert "text" not in chunk  # raw user input is not retained
+            assert "index" in chunk  # identification is preserved
+
+        blob = json.dumps(result.timing.chunks)
+        assert secret not in blob
+        assert text not in blob
