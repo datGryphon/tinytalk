@@ -100,7 +100,7 @@ class TestRepeatPenaltyEscalation:
         # First 2 calls are loop attempts, last is restoration (no rp override).
         loop_calls = [keys for keys in kwarg_keys if keys]
         assert all(keys == ["repeat_penalty_override"] for keys in loop_calls)
-        assert len(loop_calls) == 2  # base + 1 retry
+        assert len(loop_calls) == 2
 
 
 # ── best-of-N by WER ────────────────────────────────────────────────────────
@@ -310,7 +310,6 @@ class TestExhaustRetries:
             result = engine.synthesize("hello world test")
 
         assert call_count == 3
-        # Result should be the good audio (best WER = 0.05)
         rms = float(np.sqrt(np.mean(result.audio.astype(np.float64)**2)))
         assert rms > 0.01
 

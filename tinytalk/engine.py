@@ -131,103 +131,18 @@ class TinyTalkEngine:
         wer_fallbacks = 0
 
         for index, chunk in enumerate(chunks):
-            best_audio = None
-            best_wer = float("inf")
-            best_wer_result: tuple[float, str, bool] | None = None
-            best_attempt = -1
-            accepted_repeat_penalty = self.settings.repeat_penalty
+            wav, chunk_timing, chunk_fallbacks = (
+                self._synthesize_chunk(chunk, index, len(chunks))
+            )
+            wer_fallbacks += chunk_fallbacks
 
-            num_attempts = self.settings.max_retries + 1
-            attempt_details: list[dict] = []
-
-            for attempt in range(num_attempts):
-                rp = (
-                    self.settings.repeat_penalty
-                    + attempt * self.settings.repeat_penalty_reroll_step
-                )
-                self._apply_generation_settings(
-                    self.tts, repeat_penalty_override=rp
-                )
-
-                t_infer = 0.0
-                t_dsp = 0.0
-                t_wer_check = 0.0
-                wer: float | None = None
-                wer_source: str | None = None
-                wer_fallback = False
-                accept_early = False
-
-                try:
-                    infer_start = time.perf_counter()
-                    raw = self.tts.infer(chunk, self.ref_codes, self.ref_text)
-                    t_infer = time.perf_counter() - infer_start
-
-                    wav = np.asarray(raw).squeeze()
-
-                    dsp_start = time.perf_counter()
-                    wav = trim_edge_silence(
-                        wav,
-                        self.sample_rate,
-                        leading=index > 0,
-                        trailing=index < len(chunks) - 1,
-                    )
-                    wav = loudness_normalize(wav)
-                    wav = peak_limit(wav)
-                    wav = edge_fade(wav, 3.0, self.sample_rate)
-                    t_dsp = time.perf_counter() - dsp_start
-
-                    wer_start = time.perf_counter()
-                    wer, wer_source, wer_fallback = self._chunk_wer(wav, chunk)
-                    t_wer_check = time.perf_counter() - wer_start
-                    wer_fallbacks += 1 if wer_fallback else 0
-
-                    if wer < best_wer:
-                        best_wer = wer
-                        best_audio = wav
-                        best_wer_result = (wer, wer_source, wer_fallback)
-                        best_attempt = attempt
-                        accepted_repeat_penalty = rp
-                        if wer <= self.settings.wer_threshold:
-                            accept_early = True
-                except ValueError:
-                    pass
-
-                # Record every attempt that ran — including the accepted one —
-                # before honoring the early-exit break, so timing detail, the
-                # accepted flag, and attempt totals stay correct.
-                attempt_details.append(
-                    {
-                        "attempt": attempt,
-                        "t_infer": t_infer,
-                        "t_dsp": t_dsp,
-                        "t_wer_check": t_wer_check,
-                        "wer": wer,
-                        "wer_source": wer_source,
-                        "wer_fallback": wer_fallback,
-                        "repeat_penalty": rp,
-                        "accepted": accept_early,
-                    }
-                )
-
-                if accept_early:
-                    break
-
-            if best_audio is None:
-                raise RuntimeError(
-                    f"All {num_attempts} attempts produced no speech tokens for chunk: {chunk!r}"
-                )
-            wav = best_audio
-
-            # Mark the attempt whose audio was actually kept as accepted.
-            if best_attempt >= 0:
-                for detail in attempt_details:
-                    detail["accepted"] = (detail["attempt"] == best_attempt)
-
-            # Smooth pitch across boundaries: nudge each chunk toward the previous
-            # chunk's pitch, letting it drift naturally over long text.
+            # Smooth pitch across boundaries so each chunk drifts toward the
+            # previous chunk's pitch over long text.
             f0_start = time.perf_counter()
             if prev_f0_mean is not None:
                 wav = normalize_f0(wav, self.sample_rate, prev_f0_mean)
+            chunk_timing["t_f0"] = time.perf_counter() - f0_start
+            chunk_timing["duration"] = float(len(wav) / self.sample_rate)
 
             if index > 0 and self.settings.inter_chunk_silence_ms > 0:
                 parts.append(
@@ -240,25 +155,8 @@ class TinyTalkEngine:
             parts.append(wav)
 
             prev_f0_mean = compute_f0_mean(wav, self.sample_rate)
-            t_f0 = time.perf_counter() - f0_start
+            chunk_timings.append(chunk_timing)
 
-            chunk_wer, chunk_source, chunk_fallback = best_wer_result
-
-            chunk_timings.append(
-                {
-                    "index": index,
-                    "attempts": len(attempt_details),
-                    "duration": float(len(wav) / self.sample_rate),
-                    "repeat_penalty": accepted_repeat_penalty,
-                    "wer": chunk_wer,
-                    "wer_source": chunk_source,
-                    "wer_fallback": chunk_fallback,
-                    "t_f0": t_f0,
-                    "attempts_detail": attempt_details,
-                }
-            )
-
-        # Restore base generation settings after synthesis.
         self._apply_generation_settings(self.tts)
 
         return SynthesisResult(
@@ -270,6 +168,116 @@ class TinyTalkEngine:
                 wer_fallbacks=wer_fallbacks,
             ),
         )
+
+    def _synthesize_chunk(
+        self,
+        chunk_text: str,
+        index: int,
+        num_chunks: int,
+    ) -> tuple[np.ndarray, dict, int]:
+        """Run the retry/infer/DSP/WER loop for one chunk and return the accepted
+        audio, its timing dict, and its WER fallback count.
+        """
+        best_audio: np.ndarray | None = None
+        best_wer = float("inf")
+        best_wer_result: tuple[float, str, bool] | None
+        best_attempt = -1
+        accepted_repeat_penalty = self.settings.repeat_penalty
+        wer_fallbacks = 0
+        attempt_details: list[dict] = []
+
+        num_attempts = self.settings.max_retries + 1
+        for attempt in range(num_attempts):
+            rp = (
+                self.settings.repeat_penalty
+                + attempt * self.settings.repeat_penalty_reroll_step
+            )
+            self._apply_generation_settings(self.tts, repeat_penalty_override=rp)
+
+            t_infer = t_dsp = t_wer_check = 0.0
+            wer: float | None = None
+            wer_source: str | None = None
+            wer_fallback = False
+            accept_early = False
+
+            try:
+                infer_start = time.perf_counter()
+                raw = self.tts.infer(chunk_text, self.ref_codes, self.ref_text)
+                t_infer = time.perf_counter() - infer_start
+
+                wav = np.asarray(raw).squeeze()
+
+                dsp_start = time.perf_counter()
+                wav = trim_edge_silence(
+                    wav,
+                    self.sample_rate,
+                    leading=index > 0,
+                    trailing=index < num_chunks - 1,
+                )
+                wav = loudness_normalize(wav)
+                wav = peak_limit(wav)
+                wav = edge_fade(wav, 3.0, self.sample_rate)
+                t_dsp = time.perf_counter() - dsp_start
+
+                wer_start = time.perf_counter()
+                wer, wer_source, wer_fallback = self._chunk_wer(wav, chunk_text)
+                t_wer_check = time.perf_counter() - wer_start
+                wer_fallbacks += 1 if wer_fallback else 0
+
+                if wer < best_wer:
+                    best_wer = wer
+                    best_audio = wav
+                    best_wer_result = (wer, wer_source, wer_fallback)
+                    best_attempt = attempt
+                    accepted_repeat_penalty = rp
+                    if wer <= self.settings.wer_threshold:
+                        accept_early = True
+            except ValueError:
+                pass
+
+            # Record every attempt that ran, including the accepted one, before
+            # the early-exit break, so timing detail, the accepted flag, and the
+            # attempt totals stay correct.
+            attempt_details.append(
+                {
+                    "attempt": attempt,
+                    "t_infer": t_infer,
+                    "t_dsp": t_dsp,
+                    "t_wer_check": t_wer_check,
+                    "wer": wer,
+                    "wer_source": wer_source,
+                    "wer_fallback": wer_fallback,
+                    "repeat_penalty": rp,
+                    "accepted": accept_early,
+                }
+            )
+
+            if accept_early:
+                break
+
+        if best_audio is None:
+            raise RuntimeError(
+                f"All {num_attempts} attempts produced no speech tokens for chunk: {chunk_text!r}"
+            )
+        wav = best_audio
+
+        if best_attempt >= 0:
+            for detail in attempt_details:
+                detail["accepted"] = (detail["attempt"] == best_attempt)
+
+        chunk_wer, chunk_source, chunk_fallback = best_wer_result
+
+        chunk_timing = {
+            "index": index,
+            "attempts": len(attempt_details),
+            "repeat_penalty": accepted_repeat_penalty,
+            "wer": chunk_wer,
+            "wer_source": chunk_source,
+            "wer_fallback": chunk_fallback,
+            "attempts_detail": attempt_details,
+        }
+
+        return wav, chunk_timing, wer_fallbacks
 
     def _chunk_wer(self, wav, chunk_text) -> tuple[float, str, bool]:
         """Return (wer, source, fallback).
