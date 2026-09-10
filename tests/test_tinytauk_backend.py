@@ -2,9 +2,11 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import torch
 
 pytest.importorskip("tinytauk")
 
+from tinytalk.backends import tinytauk as backend_module
 from tinytalk.backends.tinytauk import TinyTAuKEngine
 from tinytalk.config import Settings
 
@@ -23,7 +25,7 @@ class FakeTinyTAuK:
             }
         )
         return SimpleNamespace(
-            audio=__import__("torch").zeros(int(24_000 * gen_seconds)),
+            audio=torch.zeros(int(24_000 * gen_seconds)),
             sample_rate=24_000,
         )
 
@@ -41,6 +43,35 @@ def _engine(**overrides):
     engine.sample_rate = 24_000
     engine.loaded = True
     return engine
+
+
+def test_load_uses_models_and_warms_full_generation(monkeypatch):
+    fake = FakeTinyTAuK()
+    factory_args = {}
+
+    class FakeFactory:
+        @staticmethod
+        def from_pretrained(**kwargs):
+            factory_args.update(kwargs)
+            return fake
+
+    monkeypatch.setattr(backend_module, "TinyTAuK", FakeFactory)
+    settings = Settings(
+        backend="tinytauk",
+        tinytauk_model="example/AuK",
+        tinytauk_qwen_model="example/Qwen",
+    )
+    engine = TinyTAuKEngine(settings)
+
+    engine.load()
+
+    assert factory_args == {
+        "model_id": "example/AuK",
+        "qwen_model_id": "example/Qwen",
+    }
+    assert fake.calls[0]["gen_seconds"] == pytest.approx(9.0)
+    assert engine.loaded is True
+    assert engine.sample_rate == 24_000
 
 
 def test_instructions_are_composed_for_auk():
@@ -77,8 +108,6 @@ def test_backend_does_not_loudness_normalize():
             self.calls.append(
                 {"instruction": instruction, "gen_seconds": gen_seconds, "seed": seed}
             )
-            import torch
-
             return SimpleNamespace(
                 audio=torch.full((24_000,), 0.02, dtype=torch.float32),
                 sample_rate=24_000,
