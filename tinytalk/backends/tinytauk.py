@@ -109,8 +109,14 @@ class TinyTAuKEngine:
 
     @staticmethod
     def _instruction(text: str, instructions: str | None) -> str:
-        description = instructions.strip() if instructions and instructions.strip() else _DEFAULT_DESCRIPTION
+        description = (
+            instructions.strip()
+            if instructions and instructions.strip()
+            else _DEFAULT_DESCRIPTION
+        )
+        quoted_description = json.dumps(description, ensure_ascii=False)
+        quoted_text = json.dumps(text, ensure_ascii=False)
         return (
             "Generate speech based on the following description: "
-            f"{json.dumps(description)}. The content to speak is: {json.dumps(text)}."
+            f"{quoted_description}. The content to speak is: {quoted_text}."
         )
