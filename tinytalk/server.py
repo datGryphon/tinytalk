@@ -13,10 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from . import __version__
 from .audio import encode_audio, to_wav_bytes
 from .config import load_settings
-from .engine import TinyTalkEngine
+from .engine import create_engine
 
 settings = load_settings()
-engine = TinyTalkEngine(settings)
+engine = create_engine(settings)
 infer_lock = asyncio.Lock()
 
 
@@ -26,8 +26,9 @@ class SpeechRequest(BaseModel):
     input: str = Field(min_length=1)
     model: str | None = None
     voice: str | None = None
+    instructions: str | None = None
     response_format: Literal["wav", "mp3", "opus"] = "wav"
-    speed: float | None = None
+    speed: float | None = Field(default=None, ge=0.25, le=4.0)
     stream: Literal[False] = False
 
     @model_validator(mode="after")
@@ -35,6 +36,8 @@ class SpeechRequest(BaseModel):
         self.input = self.input.strip()
         if not self.input:
             raise ValueError("input must not be empty")
+        if self.instructions is not None:
+            self.instructions = self.instructions.strip() or None
         return self
 
 
@@ -67,7 +70,12 @@ async def health() -> Response:
 @app.post("/v1/audio/speech")
 async def create_speech(payload: SpeechRequest) -> Response:
     async with infer_lock:
-        result = await run_in_threadpool(engine.synthesize, payload.input)
+        result = await run_in_threadpool(
+            engine.synthesize,
+            payload.input,
+            instructions=payload.instructions,
+            speed=payload.speed,
+        )
 
     wav = to_wav_bytes(result.audio, result.sample_rate)
     body, media_type = await run_in_threadpool(
@@ -82,7 +90,8 @@ async def create_speech(payload: SpeechRequest) -> Response:
             "X-TinyTalk-Chunk-Chars": ",".join(
                 str(len(chunk)) for chunk in result.chunks
             ),
-            "X-TinyTalk-Model": settings.model,
+            "X-TinyTalk-Backend": settings.backend,
+            "X-TinyTalk-Model": engine.model_name,
             "X-TinyTalk-Format": payload.response_format,
         },
     )
