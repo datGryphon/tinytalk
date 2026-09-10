@@ -87,9 +87,9 @@ not create them. Generate `ref_codes.pt` from a WAV with
 
 TinyTAuK downloads the official AuK-Flash/Qwen checkpoints through Hugging Face
 on first startup. Its VAE compiles lazily, so TinyTalk performs one disposable
-warmup generation during engine load before `/health` reports ready. The module
-uses larger default systemd memory limits for this backend (14 GB soft / 18 GB
-hard) than for NeuTTS.
+9-second generation during engine load before `/health` reports ready. The
+module uses larger default systemd memory limits for this backend (17 GB soft /
+20 GB hard) than for NeuTTS.
 
 ### NeuTTS CPU vs CUDA
 
