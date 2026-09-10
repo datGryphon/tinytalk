@@ -11,7 +11,11 @@ from ..config import Settings
 from ..engine import SynthesisResult
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
-_WARMUP_TEXT = "TinyTalk startup warmup."
+_WARMUP_TEXT = (
+    "TinyTalk is warming the speech runtime before serving requests so the first user synthesis "
+    "runs on the compiled path."
+)
+_WARMUP_SECONDS = 9.0
 
 
 class TinyTAuKEngine:
@@ -37,11 +41,11 @@ class TinyTAuKEngine:
             qwen_model_id=self.settings.tinytauk_qwen_model,
         )
 
-        # TinyTAuK's VAE compiles lazily. Consume that compile before the service
-        # reports healthy so the first user request sees the warm path.
+        # TinyTAuK's VAE compiles lazily. Exercise the same full-generation path
+        # used for CPU qualification before the service reports healthy.
         warmup = self.tts.generate(
             self._instruction(_WARMUP_TEXT, None),
-            gen_seconds=self._duration_seconds(_WARMUP_TEXT, 1.0),
+            gen_seconds=_WARMUP_SECONDS,
         )
         self.sample_rate = int(warmup.sample_rate)
         self.loaded = True
