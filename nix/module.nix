@@ -32,8 +32,8 @@ let
     then tinytaukRuntimePackages
     else neuttsRuntimePackages;
 
-  defaultMemoryHigh = if cfg.backend == "tinytauk" then "14G" else "5000M";
-  defaultMemoryMax = if cfg.backend == "tinytauk" then "18G" else "6000M";
+  defaultMemoryHigh = if cfg.backend == "tinytauk" then "17G" else "5000M";
+  defaultMemoryMax = if cfg.backend == "tinytauk" then "20G" else "6000M";
 
   prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
     builtins.replaceStrings
@@ -175,13 +175,13 @@ in
     memoryHigh = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "systemd MemoryHigh. Null selects the backend default (5 GB NeuTTS, 14 GB TinyTAuK).";
+      description = "systemd MemoryHigh. Null selects the backend default (5 GB NeuTTS, 17 GB TinyTAuK).";
     };
 
     memoryMax = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "systemd MemoryMax. Null selects the backend default (6 GB NeuTTS, 18 GB TinyTAuK).";
+      description = "systemd MemoryMax. Null selects the backend default (6 GB NeuTTS, 20 GB TinyTAuK).";
     };
 
     runtimeIndexUrl = lib.mkOption {
@@ -206,7 +206,7 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       {
-        assertion = cfg.tinytaukCharsPerSecond > 0.0;
+        assertion = cfg.backend != "tinytauk" || cfg.tinytaukCharsPerSecond > 0.0;
         message = "services.tinytalk.tinytaukCharsPerSecond must be positive";
       }
     ];
