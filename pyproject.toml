@@ -9,14 +9,14 @@ dependencies = [
   "uvicorn[standard]",
   "numpy",
   "spacy",
-  "librosa",
-  "praat-parselmouth",
 ]
 
 [project.optional-dependencies]
 neutts = [
   "neutts[all]",
   "torch",
+  "librosa",
+  "praat-parselmouth",
 ]
 tinytauk = [
   "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.0.tar.gz",
