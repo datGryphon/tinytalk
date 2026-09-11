@@ -8,10 +8,8 @@ from neutts import NeuTTS
 
 from ..audio import (
     chunk_confidence,
-    compute_f0_mean,
     edge_fade,
     loudness_normalize,
-    normalize_f0,
     peak_limit,
     silence,
     to_wav_bytes,
@@ -21,6 +19,7 @@ from ..chunking import split_text
 from ..config import Settings
 from ..engine import SynthesisResult
 from ..wer import transcribe_chunk, word_error_rate
+from .neutts_audio import compute_f0_mean, normalize_f0
 
 
 class NeuTTSEngine:
