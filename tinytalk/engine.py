@@ -42,3 +42,12 @@ def create_engine(settings: Settings) -> SpeechEngine:
 
         return TinyTAuKEngine(settings)
     raise ValueError(f"unsupported synthesis backend: {settings.backend!r}")
+
+
+class TinyTalkEngine:
+    """Backward-compatible constructor for the original NeuTTS engine."""
+
+    def __new__(cls, settings: Settings):
+        from .backends.neutts import NeuTTSEngine
+
+        return NeuTTSEngine(settings)
