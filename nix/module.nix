@@ -6,25 +6,23 @@ let
   python = if cfg.backend == "tinytauk" then pkgs.python313 else pkgs.python312;
   pythonTarget = "/var/lib/tinytalk/python";
 
-  neuttsRuntimePackages = [
-    "torch==2.11.0+cpu"
-    "torchaudio==2.11.0+cpu"
-    "neutts[all]"
-    "fastapi"
-    "uvicorn[standard]"
-    "spacy"
-    "librosa"
-    "praat-parselmouth"
-  ];
-
-  tinytaukRuntimePackages = [
-    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.0.tar.gz"
+  commonRuntimePackages = [
     "fastapi"
     "uvicorn[standard]"
     "numpy"
     "spacy"
+  ];
+
+  neuttsRuntimePackages = commonRuntimePackages ++ [
+    "torch==2.11.0+cpu"
+    "torchaudio==2.11.0+cpu"
+    "neutts[all]"
     "librosa"
     "praat-parselmouth"
+  ];
+
+  tinytaukRuntimePackages = commonRuntimePackages ++ [
+    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.0.tar.gz"
   ];
 
   runtimePackages =
