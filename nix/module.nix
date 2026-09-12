@@ -6,9 +6,11 @@ let
   python = pkgs.python312;
   pythonTarget = "/var/lib/tinytalk/python";
   runtimePackages = [
-    "torch==2.11.0+cpu"
-    "torchaudio==2.11.0+cpu"
-    "neutts[all]"
+    "torch==2.8.0+cpu"
+    "torchaudio==2.8.0+cpu"
+    "torchao==0.13.0"
+    "torchtune==0.6.1"
+    "neutts[all]==1.4.1"
     "fastapi"
     "uvicorn[standard]"
     "spacy"
