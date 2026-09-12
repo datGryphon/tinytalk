@@ -19,7 +19,10 @@ reference voice. `stream: true` is rejected. Long inputs are chunked at
 sentence/phrase boundaries server-side.
 
 Response headers: `X-TinyTalk-Chunks`, `X-TinyTalk-Chunk-Chars`,
-`X-TinyTalk-Model`, `X-TinyTalk-Format`.
+`X-TinyTalk-Model`, `X-TinyTalk-Format`, and `X-TinyTalk-Timing`.
+`X-TinyTalk-Timing` reports total request time, emitted audio duration, RTF,
+chunk count, synthesis attempts, and WER fallbacks. Detailed per-chunk and
+per-attempt timing is written as one structured JSON log record per request.
 
 ## NixOS module
 
@@ -70,14 +73,15 @@ pip install -e '.[test]'
 pytest
 ```
 
-Real audio integration tests (require model downloads and configured backend):
+Real audio integration tests use the checked-in `tests/voices/jo.*` reference
+voice and download the configured NeuTTS model and codec. The default NeuTTS
+backbone is gated on Hugging Face: accept its terms for your account and expose
+a download token as `HF_TOKEN` before running the test.
 
 ```bash
+HF_TOKEN=... \
 TINYTALK_RUN_INTEGRATION=1 \
-TINYTALK_REF_CODES=/var/lib/tinytalk/ref_codes.pt \
-TINYTALK_REF_TEXT=/var/lib/tinytalk/ref_text.txt \
-TINYTALK_BACKBONE_DEVICE=cpu \
-pytest tests/integration
+pytest -s tests/integration/test_real_speech.py
 ```
 
 Artifacts are written under `test_artifacts/`.

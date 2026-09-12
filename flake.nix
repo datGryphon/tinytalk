@@ -18,8 +18,16 @@
           export LD_LIBRARY_PATH="${libPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           if [ ! -d .venv ]; then
             uv venv --python python3 --python-preference only-system
-            uv pip install -e '.[test]'
           fi
+          # Both indexes are trusted upstreams. Resolve across them so packages
+          # such as torchtune can come from PyPI while the higher-priority
+          # PyTorch index supplies the +cpu torch/torchaudio wheels.
+          uv pip install \
+            --python .venv/bin/python \
+            --index-url https://pypi.org/simple \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            --index-strategy unsafe-best-match \
+            -e '.[test]'
           source .venv/bin/activate
         '';
       };

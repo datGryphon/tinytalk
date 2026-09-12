@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import time
 
 import numpy as np
 import torch
@@ -22,10 +23,24 @@ from neutts import NeuTTS
 
 
 @dataclass(frozen=True)
+class RequestTiming:
+    """Full per-chunk/per-attempt timing for one request, returned by synthesize.
+
+    ``chunks`` is a list of plain JSON-compatible dicts — one per chunk, each
+    carrying an ``attempts_detail`` list of per-attempt dicts — so the whole
+    structure serializes directly into the request log line.
+    """
+
+    chunks: list[dict]
+    wer_fallbacks: int
+
+
+@dataclass(frozen=True)
 class SynthesisResult:
     audio: np.ndarray
     sample_rate: int
     chunks: list[str]
+    timing: RequestTiming | None = None
 
 
 class TinyTalkEngine:
@@ -110,86 +125,183 @@ class TinyTalkEngine:
 
         chunks = split_text(text, self.settings.max_chars_per_chunk)
         parts: list[np.ndarray] = []
+        chunk_timings: list[dict] = []
 
         prev_f0_mean: float | None = None
+        wer_fallbacks = 0
 
-        for index, chunk in enumerate(chunks):
-            best_audio = None
-            best_wer = float("inf")
-
-            num_attempts = self.settings.max_retries + 1
-            for attempt in range(num_attempts):
-                rp = self.settings.repeat_penalty + attempt * self.settings.repeat_penalty_reroll_step
-                self._apply_generation_settings(
-                    self.tts, repeat_penalty_override=rp
+        try:
+            for index, chunk in enumerate(chunks):
+                wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
+                    chunk, index, len(chunks)
                 )
+                wer_fallbacks += chunk_fallbacks
 
+                # F0 timing includes both boundary normalization and analysis for
+                # the next chunk; together these are the pitch-continuity stage.
+                f0_start = time.perf_counter()
+                if prev_f0_mean is not None:
+                    wav = normalize_f0(wav, self.sample_rate, prev_f0_mean)
+                prev_f0_mean = compute_f0_mean(wav, self.sample_rate)
+                chunk_timing["t_f0"] = time.perf_counter() - f0_start
+                chunk_timing["duration"] = float(len(wav) / self.sample_rate)
+
+                if index > 0 and self.settings.inter_chunk_silence_ms > 0:
+                    parts.append(
+                        silence(
+                            self.sample_rate,
+                            self.settings.inter_chunk_silence_ms,
+                            wav.dtype,
+                        )
+                    )
+                parts.append(wav)
+                chunk_timings.append(chunk_timing)
+
+            return SynthesisResult(
+                audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
+                sample_rate=self.sample_rate,
+                chunks=chunks,
+                timing=RequestTiming(
+                    chunks=chunk_timings,
+                    wer_fallbacks=wer_fallbacks,
+                ),
+            )
+        finally:
+            # Retry attempts temporarily override the persistent GGUF backbone's
+            # repeat penalty. Always restore the configured base value, including
+            # when synthesis fails partway through a request.
+            self._apply_generation_settings(self.tts)
+
+    def _synthesize_chunk(
+        self,
+        chunk_text: str,
+        index: int,
+        num_chunks: int,
+    ) -> tuple[np.ndarray, dict, int]:
+        """Run the retry/infer/DSP/WER loop for one chunk and return the accepted
+        audio, its timing dict, and its WER fallback count.
+        """
+        best_audio: np.ndarray | None = None
+        best_wer = float("inf")
+        best_wer_result: tuple[float, str, bool] | None
+        best_attempt = -1
+        accepted_repeat_penalty = self.settings.repeat_penalty
+        wer_fallbacks = 0
+        attempt_details: list[dict] = []
+
+        num_attempts = self.settings.max_retries + 1
+        for attempt in range(num_attempts):
+            rp = (
+                self.settings.repeat_penalty
+                + attempt * self.settings.repeat_penalty_reroll_step
+            )
+            self._apply_generation_settings(self.tts, repeat_penalty_override=rp)
+
+            t_infer = t_dsp = t_wer_check = 0.0
+            wer: float | None = None
+            wer_source: str | None = None
+            wer_fallback = False
+            accept_early = False
+
+            try:
+                infer_start = time.perf_counter()
                 try:
-                    wav = np.asarray(
-                        self.tts.infer(chunk, self.ref_codes, self.ref_text)
-                    ).squeeze()
+                    raw = self.tts.infer(chunk_text, self.ref_codes, self.ref_text)
+                finally:
+                    # Failed/no-token attempts are still real inference work and
+                    # must contribute to the request-path timing.
+                    t_infer = time.perf_counter() - infer_start
 
-                    wav = trim_edge_silence(
-                        wav,
-                        self.sample_rate,
-                        leading=index > 0,
-                        trailing=index < len(chunks) - 1,
-                    )
+                wav = np.asarray(raw).squeeze()
 
-                    wav = loudness_normalize(wav)
-                    wav = peak_limit(wav)
-                    wav = edge_fade(wav, 3.0, self.sample_rate)
+                dsp_start = time.perf_counter()
+                wav = trim_edge_silence(
+                    wav,
+                    self.sample_rate,
+                    leading=index > 0,
+                    trailing=index < num_chunks - 1,
+                )
+                wav = loudness_normalize(wav)
+                wav = peak_limit(wav)
+                wav = edge_fade(wav, 3.0, self.sample_rate)
+                t_dsp = time.perf_counter() - dsp_start
 
-                    wer = self._chunk_wer(wav, chunk)
-                    if wer < best_wer:
-                        best_wer = wer
-                        best_audio = wav
+                wer_start = time.perf_counter()
+                wer, wer_source, wer_fallback = self._chunk_wer(wav, chunk_text)
+                t_wer_check = time.perf_counter() - wer_start
+                wer_fallbacks += 1 if wer_fallback else 0
+
+                if wer < best_wer:
+                    best_wer = wer
+                    best_audio = wav
+                    best_wer_result = (wer, wer_source, wer_fallback)
+                    best_attempt = attempt
+                    accepted_repeat_penalty = rp
                     if wer <= self.settings.wer_threshold:
-                        break
-                except ValueError:
-                    pass
+                        accept_early = True
+            except ValueError:
+                pass
 
-            if best_audio is None:
-                raise RuntimeError(
-                    f"All {num_attempts} attempts produced no speech tokens for chunk: {chunk!r}"
-                )
-            wav = best_audio
+            # Record every attempt that ran, including the accepted one, before
+            # the early-exit break, so timing detail, the accepted flag, and the
+            # attempt totals stay correct.
+            attempt_details.append(
+                {
+                    "attempt": attempt,
+                    "t_infer": t_infer,
+                    "t_dsp": t_dsp,
+                    "t_wer_check": t_wer_check,
+                    "wer": wer,
+                    "wer_source": wer_source,
+                    "wer_fallback": wer_fallback,
+                    "repeat_penalty": rp,
+                    "accepted": accept_early,
+                }
+            )
 
-            # Smooth pitch across boundaries: nudge each chunk toward the previous
-            # chunk's pitch, letting it drift naturally over long text.
-            if prev_f0_mean is not None:
-                wav = normalize_f0(wav, self.sample_rate, prev_f0_mean)
+            if accept_early:
+                break
 
-            if index > 0 and self.settings.inter_chunk_silence_ms > 0:
-                parts.append(
-                    silence(
-                        self.sample_rate,
-                        self.settings.inter_chunk_silence_ms,
-                        wav.dtype,
-                    )
-                )
-            parts.append(wav)
+        if best_audio is None:
+            raise RuntimeError(
+                f"All {num_attempts} attempts produced no speech tokens for chunk: {chunk_text!r}"
+            )
+        wav = best_audio
 
-            prev_f0_mean = compute_f0_mean(wav, self.sample_rate)
+        if best_attempt >= 0:
+            for detail in attempt_details:
+                detail["accepted"] = detail["attempt"] == best_attempt
 
-        # Restore base generation settings after synthesis.
-        self._apply_generation_settings(self.tts)
+        chunk_wer, chunk_source, chunk_fallback = best_wer_result
 
-        return SynthesisResult(
-            audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
-            sample_rate=self.sample_rate,
-            chunks=chunks,
-        )
+        chunk_timing = {
+            "index": index,
+            "attempts": len(attempt_details),
+            "repeat_penalty": accepted_repeat_penalty,
+            "wer": chunk_wer,
+            "wer_source": chunk_source,
+            "wer_fallback": chunk_fallback,
+            "attempts_detail": attempt_details,
+        }
 
-    def _chunk_wer(self, wav, chunk_text):
+        return wav, chunk_timing, wer_fallbacks
+
+    def _chunk_wer(self, wav, chunk_text) -> tuple[float, str, bool]:
+        """Return (wer, source, fallback).
+
+        ``source`` is ``"whisper"`` when the WER came from the transcription
+        endpoint, or ``"confidence"`` from the ``chunk_confidence`` fallback.
+        ``fallback`` is True only when the Whisper call errored and the
+        confidence fallback was used (the ``except`` branch).
+        """
         if not self.settings.wer_endpoint:
-            return 1.0 - chunk_confidence(wav, len(chunk_text))
+            return 1.0 - chunk_confidence(wav, len(chunk_text)), "confidence", False
         try:
             wav_bytes = to_wav_bytes(wav, self.sample_rate)
             transcript = transcribe_chunk(wav_bytes, chunk_text, self.settings.wer_endpoint)
-            return word_error_rate(transcript, chunk_text)
+            return word_error_rate(transcript, chunk_text), "whisper", False
         except Exception:
-            return 1.0 - chunk_confidence(wav, len(chunk_text))
+            return 1.0 - chunk_confidence(wav, len(chunk_text)), "confidence", True
 
     def _validate_reference_files(self) -> None:
         for path_name, path in (

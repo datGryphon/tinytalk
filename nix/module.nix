@@ -6,9 +6,11 @@ let
   python = pkgs.python312;
   pythonTarget = "/var/lib/tinytalk/python";
   runtimePackages = [
-    "torch==2.11.0+cpu"
-    "torchaudio==2.11.0+cpu"
-    "neutts[all]"
+    "torch==2.8.0+cpu"
+    "torchaudio==2.8.0+cpu"
+    "torchao==0.13.0"
+    "torchtune==0.6.1"
+    "neutts[all]==1.4.1"
     "fastapi"
     "uvicorn[standard]"
     "spacy"
@@ -151,14 +153,14 @@ in
 
     runtimeIndexUrl = lib.mkOption {
       type = lib.types.str;
-      default = "https://download.pytorch.org/whl/cpu";
-      description = "Primary Python package index used by the runtime bootstrap.";
+      default = "https://pypi.org/simple";
+      description = "Default/fallback Python package index used by the runtime bootstrap.";
     };
 
     runtimeExtraIndexUrls = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "https://pypi.org/simple" ];
-      description = "Additional Python package indexes used by the runtime bootstrap.";
+      default = [ "https://download.pytorch.org/whl/cpu" ];
+      description = "Higher-priority Python package indexes used by the runtime bootstrap.";
     };
 
     runtimePackages = lib.mkOption {
