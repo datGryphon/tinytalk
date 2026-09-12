@@ -130,44 +130,47 @@ class TinyTalkEngine:
         prev_f0_mean: float | None = None
         wer_fallbacks = 0
 
-        for index, chunk in enumerate(chunks):
-            wav, chunk_timing, chunk_fallbacks = (
-                self._synthesize_chunk(chunk, index, len(chunks))
-            )
-            wer_fallbacks += chunk_fallbacks
-
-            # Smooth pitch across boundaries so each chunk drifts toward the
-            # previous chunk's pitch over long text.
-            f0_start = time.perf_counter()
-            if prev_f0_mean is not None:
-                wav = normalize_f0(wav, self.sample_rate, prev_f0_mean)
-            chunk_timing["t_f0"] = time.perf_counter() - f0_start
-            chunk_timing["duration"] = float(len(wav) / self.sample_rate)
-
-            if index > 0 and self.settings.inter_chunk_silence_ms > 0:
-                parts.append(
-                    silence(
-                        self.sample_rate,
-                        self.settings.inter_chunk_silence_ms,
-                        wav.dtype,
-                    )
+        try:
+            for index, chunk in enumerate(chunks):
+                wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
+                    chunk, index, len(chunks)
                 )
-            parts.append(wav)
+                wer_fallbacks += chunk_fallbacks
 
-            prev_f0_mean = compute_f0_mean(wav, self.sample_rate)
-            chunk_timings.append(chunk_timing)
+                # F0 timing includes both boundary normalization and analysis for
+                # the next chunk; together these are the pitch-continuity stage.
+                f0_start = time.perf_counter()
+                if prev_f0_mean is not None:
+                    wav = normalize_f0(wav, self.sample_rate, prev_f0_mean)
+                prev_f0_mean = compute_f0_mean(wav, self.sample_rate)
+                chunk_timing["t_f0"] = time.perf_counter() - f0_start
+                chunk_timing["duration"] = float(len(wav) / self.sample_rate)
 
-        self._apply_generation_settings(self.tts)
+                if index > 0 and self.settings.inter_chunk_silence_ms > 0:
+                    parts.append(
+                        silence(
+                            self.sample_rate,
+                            self.settings.inter_chunk_silence_ms,
+                            wav.dtype,
+                        )
+                    )
+                parts.append(wav)
+                chunk_timings.append(chunk_timing)
 
-        return SynthesisResult(
-            audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
-            sample_rate=self.sample_rate,
-            chunks=chunks,
-            timing=RequestTiming(
-                chunks=chunk_timings,
-                wer_fallbacks=wer_fallbacks,
-            ),
-        )
+            return SynthesisResult(
+                audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
+                sample_rate=self.sample_rate,
+                chunks=chunks,
+                timing=RequestTiming(
+                    chunks=chunk_timings,
+                    wer_fallbacks=wer_fallbacks,
+                ),
+            )
+        finally:
+            # Retry attempts temporarily override the persistent GGUF backbone's
+            # repeat penalty. Always restore the configured base value, including
+            # when synthesis fails partway through a request.
+            self._apply_generation_settings(self.tts)
 
     def _synthesize_chunk(
         self,
@@ -202,8 +205,12 @@ class TinyTalkEngine:
 
             try:
                 infer_start = time.perf_counter()
-                raw = self.tts.infer(chunk_text, self.ref_codes, self.ref_text)
-                t_infer = time.perf_counter() - infer_start
+                try:
+                    raw = self.tts.infer(chunk_text, self.ref_codes, self.ref_text)
+                finally:
+                    # Failed/no-token attempts are still real inference work and
+                    # must contribute to the request-path timing.
+                    t_infer = time.perf_counter() - infer_start
 
                 wav = np.asarray(raw).squeeze()
 
@@ -263,7 +270,7 @@ class TinyTalkEngine:
 
         if best_attempt >= 0:
             for detail in attempt_details:
-                detail["accepted"] = (detail["attempt"] == best_attempt)
+                detail["accepted"] = detail["attempt"] == best_attempt
 
         chunk_wer, chunk_source, chunk_fallback = best_wer_result
 
