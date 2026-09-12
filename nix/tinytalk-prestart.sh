@@ -3,7 +3,8 @@ set -euo pipefail
 
 PYTHON_TARGET="${TINYTALK_PYTHON_TARGET:?}"
 MARKER="$PYTHON_TARGET/.spec"
-SPEC="${TINYTALK_PIP_INDEX_URL:-}|${TINYTALK_PIP_EXTRA_INDEX_URLS:-}|${TINYTALK_RUNTIME_REQUIREMENTS:?}"
+INDEX_STRATEGY="unsafe-best-match"
+SPEC="v2|$INDEX_STRATEGY|${TINYTALK_PIP_INDEX_URL:-}|${TINYTALK_PIP_EXTRA_INDEX_URLS:-}|${TINYTALK_RUNTIME_REQUIREMENTS:?}"
 
 for path in "${TINYTALK_REF_CODES:?}" "${TINYTALK_REF_TEXT:?}"; do
   [ -r "$path" ] || { echo "tinytalk: unreadable: $path" >&2; exit 1; }
@@ -24,6 +25,7 @@ done
 @uv@/bin/uv pip install \
   --python @python@/bin/python \
   --target "$PYTHON_TARGET" \
+  --index-strategy "$INDEX_STRATEGY" \
   ${TINYTALK_PIP_INDEX_URL:+--index-url "$TINYTALK_PIP_INDEX_URL"} \
   ${EXTRA[@]+"${EXTRA[@]}"} \
   -r "$TINYTALK_RUNTIME_REQUIREMENTS"
