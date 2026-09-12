@@ -153,14 +153,14 @@ in
 
     runtimeIndexUrl = lib.mkOption {
       type = lib.types.str;
-      default = "https://download.pytorch.org/whl/cpu";
-      description = "Primary Python package index used by the runtime bootstrap.";
+      default = "https://pypi.org/simple";
+      description = "Default/fallback Python package index used by the runtime bootstrap.";
     };
 
     runtimeExtraIndexUrls = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "https://pypi.org/simple" ];
-      description = "Additional Python package indexes used by the runtime bootstrap.";
+      default = [ "https://download.pytorch.org/whl/cpu" ];
+      description = "Higher-priority Python package indexes used by the runtime bootstrap.";
     };
 
     runtimePackages = lib.mkOption {
