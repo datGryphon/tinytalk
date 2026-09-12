@@ -18,8 +18,12 @@
           export LD_LIBRARY_PATH="${libPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           if [ ! -d .venv ]; then
             uv venv --python python3 --python-preference only-system
-            uv pip install -e '.[test]'
           fi
+          uv pip install \
+            --python .venv/bin/python \
+            --index-url https://download.pytorch.org/whl/cpu \
+            --extra-index-url https://pypi.org/simple \
+            -e '.[test]'
           source .venv/bin/activate
         '';
       };
