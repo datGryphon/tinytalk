@@ -19,10 +19,13 @@
           if [ ! -d .venv ]; then
             uv venv --python python3 --python-preference only-system
           fi
+          # uv gives --extra-index-url higher priority than --index-url. Keep
+          # PyPI as the fallback and prefer the CPU PyTorch index for torch
+          # packages so this shell does not pull the CUDA wheel stack.
           uv pip install \
             --python .venv/bin/python \
-            --index-url https://download.pytorch.org/whl/cpu \
-            --extra-index-url https://pypi.org/simple \
+            --index-url https://pypi.org/simple \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
             -e '.[test]'
           source .venv/bin/activate
         '';
