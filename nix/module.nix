@@ -252,7 +252,9 @@ in
         UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
       };
 
-      path = [ pkgs.coreutils pkgs.uv python pkgs.ffmpeg-headless ];
+      path =
+        [ pkgs.coreutils pkgs.uv python pkgs.ffmpeg-headless ]
+        ++ lib.optionals (cfg.backend == "tinytauk") [ pkgs.gcc pkgs.pkg-config ];
 
       serviceConfig = {
         ExecStartPre = prestart;
