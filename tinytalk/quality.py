@@ -57,7 +57,13 @@ def _edit_score(
     reference: Sequence[str],
     hypothesis: Sequence[str],
 ) -> tuple[EditScore, tuple[str, ...]]:
-    """Levenshtein score plus the hypothesis units aligned as insertions."""
+    """Levenshtein score plus unexpected hypothesis units from the alignment.
+
+    Unexpected hypothesis units are insertions plus the hypothesis side of
+    substitutions. Keeping both matters for prompt-leak detection: a model can
+    speak conditioning text in place of target words rather than only appending
+    extra words.
+    """
     n = len(reference)
     m = len(hypothesis)
     distances = [[0] * (m + 1) for _ in range(n + 1)]
@@ -79,7 +85,7 @@ def _edit_score(
     substitutions = 0
     deletions = 0
     insertions = 0
-    inserted_units: list[str] = []
+    unexpected_hypothesis_units: list[str] = []
     i, j = n, m
 
     while i > 0 or j > 0:
@@ -95,13 +101,14 @@ def _edit_score(
 
         if i > 0 and j > 0 and distances[i][j] == distances[i - 1][j - 1] + 1:
             substitutions += 1
+            unexpected_hypothesis_units.append(hypothesis[j - 1])
             i -= 1
             j -= 1
             continue
 
         if j > 0 and distances[i][j] == distances[i][j - 1] + 1:
             insertions += 1
-            inserted_units.append(hypothesis[j - 1])
+            unexpected_hypothesis_units.append(hypothesis[j - 1])
             j -= 1
             continue
 
@@ -118,7 +125,7 @@ def _edit_score(
             reference_units=reference_units,
             rate=0.0 if reference_units == 0 else errors / reference_units,
         ),
-        tuple(reversed(inserted_units)),
+        tuple(reversed(unexpected_hypothesis_units)),
     )
 
 
@@ -145,23 +152,24 @@ def evaluate_transcript(
 ) -> QualityResult:
     target_words = normalize_text(target_text).split()
     transcript_words = normalize_text(transcript).split()
-    wer_score, inserted_words = _edit_score(target_words, transcript_words)
+    wer_score, unexpected_words = _edit_score(target_words, transcript_words)
     cer_score = char_error_rate(target_text, transcript)
 
     target_word_set = set(target_words)
     prompt_words = set(
         normalize_text(" ".join(part for part in (prompt_text, scaffold_text) if part)).split()
     )
-    inserted_prompt_words = [
+    unexpected_prompt_words = [
         word
-        for word in inserted_words
+        for word in unexpected_words
         if word not in target_word_set and word in prompt_words
     ]
 
     # One stray shared word is too noisy to classify as prompt leakage. Two
-    # aligned insertions from the conditioning/scaffold text is a useful,
-    # intentionally conservative signal.
-    prompt_leak = len(inserted_prompt_words) >= 2
+    # aligned unexpected words from conditioning/scaffold text is a useful,
+    # intentionally conservative signal. "Unexpected" includes both true
+    # insertions and substituted hypothesis words.
+    prompt_leak = len(unexpected_prompt_words) >= 2
 
     return QualityResult(
         wer=wer_score.rate,
