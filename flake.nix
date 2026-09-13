@@ -8,9 +8,9 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       libPath = pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
-      mkDevShell = { python, venv, extras, backend }:
+      mkDevShell = { python, venv, extras, backend, extraPackages ? [ ] }:
         pkgs.mkShell {
-          packages = [ python pkgs.uv pkgs.ffmpeg-headless ];
+          packages = [ python pkgs.uv pkgs.ffmpeg-headless ] ++ extraPackages;
           shellHook = ''
             export LD_LIBRARY_PATH="${libPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             export TINYTALK_BACKEND="${backend}"
@@ -43,6 +43,9 @@
           venv = ".venv-tinytauk";
           extras = "tinytauk,test";
           backend = "tinytauk";
+          # TinyTAuK's released CPU profile compiles the VAE decoder lazily
+          # with TorchInductor, which invokes a native compiler on first use.
+          extraPackages = [ pkgs.gcc pkgs.pkg-config ];
         };
       };
     };
