@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -9,18 +9,16 @@ from neutts import NeuTTS
 
 from .. import engine as engine_module
 from ..audio import (
-    chunk_confidence,
     edge_fade,
     loudness_normalize,
     peak_limit,
     silence,
-    to_wav_bytes,
     trim_edge_silence,
 )
 from ..chunking import split_text
 from ..config import Settings
 from ..engine import RequestTiming, SynthesisResult
-from ..wer import word_error_rate
+from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from .neutts_audio import compute_f0_mean, normalize_f0
 
 
@@ -163,8 +161,8 @@ class NeuTTSEngine:
         num_chunks: int,
     ) -> tuple[np.ndarray, dict, int]:
         best_audio: np.ndarray | None = None
-        best_wer = float("inf")
-        best_wer_result: tuple[float, str, bool] | None = None
+        best_quality: QualityResult | None = None
+        best_rank: tuple[bool, bool, float, float] | None = None
         best_attempt = -1
         accepted_repeat_penalty = self.settings.repeat_penalty
         wer_fallbacks = 0
@@ -178,10 +176,10 @@ class NeuTTSEngine:
             )
             self._apply_generation_settings(self.tts, repeat_penalty_override=rp)
 
-            t_infer = t_dsp = t_wer_check = 0.0
-            wer: float | None = None
-            wer_source: str | None = None
-            wer_fallback = False
+            t_infer = 0.0
+            t_dsp = 0.0
+            t_wer_check = 0.0
+            quality: QualityResult | None = None
             accept_early = False
 
             try:
@@ -205,77 +203,99 @@ class NeuTTSEngine:
                 wav = edge_fade(wav, 3.0, self.sample_rate)
                 t_dsp = time.perf_counter() - dsp_start
 
-                wer_start = time.perf_counter()
-                wer, wer_source, wer_fallback = self._chunk_wer(wav, chunk_text)
-                t_wer_check = time.perf_counter() - wer_start
-                wer_fallbacks += 1 if wer_fallback else 0
+                quality_start = time.perf_counter()
+                quality = self._chunk_quality(wav, chunk_text)
+                t_wer_check = time.perf_counter() - quality_start
+                wer_fallbacks += int(quality.fallback)
 
-                if wer < best_wer:
-                    best_wer = wer
+                rank = quality_rank(quality)
+                if best_rank is None or rank < best_rank:
+                    best_rank = rank
+                    best_quality = quality
                     best_audio = wav
-                    best_wer_result = (wer, wer_source, wer_fallback)
                     best_attempt = attempt
                     accepted_repeat_penalty = rp
-                    if wer <= self.settings.wer_threshold:
-                        accept_early = True
+
+                accept_early = quality_is_acceptable(
+                    quality,
+                    self.settings.wer_threshold,
+                )
             except ValueError:
                 pass
 
-            attempt_details.append(
-                {
-                    "attempt": attempt,
-                    "t_infer": t_infer,
-                    "t_dsp": t_dsp,
-                    "t_wer_check": t_wer_check,
-                    "wer": wer,
-                    "wer_source": wer_source,
-                    "wer_fallback": wer_fallback,
-                    "repeat_penalty": rp,
-                    "accepted": accept_early,
-                }
-            )
+            detail = {
+                "attempt": attempt,
+                "t_infer": t_infer,
+                "t_dsp": t_dsp,
+                "t_wer_check": t_wer_check,
+                "repeat_penalty": rp,
+                "accepted": accept_early,
+            }
+            detail.update(self._quality_timing_fields(quality))
+            attempt_details.append(detail)
 
             if accept_early:
                 break
 
-        if best_audio is None or best_wer_result is None:
+        if best_audio is None or best_quality is None:
             raise RuntimeError(
                 f"All {num_attempts} attempts produced no speech tokens for chunk: {chunk_text!r}"
             )
 
-        if best_attempt >= 0:
-            for detail in attempt_details:
-                detail["accepted"] = detail["attempt"] == best_attempt
+        for detail in attempt_details:
+            detail["accepted"] = detail["attempt"] == best_attempt
 
-        chunk_wer, chunk_source, chunk_fallback = best_wer_result
-        return (
-            best_audio,
-            {
-                "index": index,
-                "attempts": len(attempt_details),
-                "repeat_penalty": accepted_repeat_penalty,
-                "wer": chunk_wer,
-                "wer_source": chunk_source,
-                "wer_fallback": chunk_fallback,
-                "attempts_detail": attempt_details,
-            },
-            wer_fallbacks,
+        chunk_timing = {
+            "index": index,
+            "attempts": len(attempt_details),
+            "repeat_penalty": accepted_repeat_penalty,
+            "attempts_detail": attempt_details,
+        }
+        chunk_timing.update(best_quality.timing_fields())
+        return best_audio, chunk_timing, wer_fallbacks
+
+    def _chunk_quality(self, wav: np.ndarray, chunk_text: str) -> QualityResult:
+        # Route through the historical _chunk_wer seam so existing tests and
+        # tuning helpers can still replace it while quality scoring is shared.
+        result = self._chunk_wer(wav, chunk_text)
+        if isinstance(result, QualityResult):
+            return result
+
+        wer, source, fallback = result
+        return QualityResult(
+            wer=float(wer),
+            cer=None,
+            substitutions=None,
+            deletions=None,
+            insertions=None,
+            prompt_leak=False,
+            source=str(source),
+            fallback=bool(fallback),
         )
 
-    def _chunk_wer(self, wav, chunk_text) -> tuple[float, str, bool]:
-        if not self.settings.wer_endpoint:
-            return 1.0 - chunk_confidence(wav, len(chunk_text)), "confidence", False
-        try:
-            wav_bytes = to_wav_bytes(wav, self.sample_rate)
-            # Keep the historical tinytalk.engine monkeypatch point used by
-            # existing tests and tuning helpers while the implementation lives
-            # behind this backend boundary.
-            transcript = engine_module.transcribe_chunk(
-                wav_bytes, chunk_text, self.settings.wer_endpoint
-            )
-            return word_error_rate(transcript, chunk_text), "whisper", False
-        except Exception:
-            return 1.0 - chunk_confidence(wav, len(chunk_text)), "confidence", True
+    def _chunk_wer(self, wav: np.ndarray, chunk_text: str):
+        return evaluate_audio(
+            wav,
+            self.sample_rate,
+            target_text=chunk_text,
+            endpoint=self.settings.wer_endpoint,
+            transcribe=engine_module.transcribe_chunk,
+        )
+
+    @staticmethod
+    def _quality_timing_fields(quality: QualityResult | None) -> dict[str, object]:
+        if quality is None:
+            return {
+                "wer": None,
+                "cer": None,
+                "substitutions": None,
+                "deletions": None,
+                "insertions": None,
+                "prompt_leak": False,
+                "wer_source": None,
+                "wer_fallback": False,
+            }
+        return quality.timing_fields()
 
     def _validate_reference_files(self) -> None:
         for path_name, path in (
