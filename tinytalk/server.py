@@ -21,7 +21,9 @@ from .engine import create_engine
 settings = load_settings()
 engine = create_engine(settings)
 infer_lock = asyncio.Lock()
-log = logging.getLogger("tinytalk.server")
+# Use Uvicorn's configured logger hierarchy so structured request telemetry is
+# visible under the normal `uvicorn ... --log-level info` development/service path.
+log = logging.getLogger("uvicorn.error.tinytalk")
 
 
 class SpeechRequest(BaseModel):
