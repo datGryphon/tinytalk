@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tinytalk import engine as engine_module
 from tinytalk.audio import to_wav_bytes
 from tinytalk.backends.tinytauk import TinyTAuKEngine
 from tinytalk.config import Settings
@@ -23,10 +24,6 @@ HIGH_STYLE = (
     "An excited, energetic announcer with a bright high-pitched voice, fast lively pacing, "
     "strong pitch variation, emphatic stress, and animated delivery."
 )
-# The first sweep showed that 16-17 chars/sec still leaves ample horizon for this
-# sentence. Push farther into under-budget territory so at least one case should
-# exercise a genuine failed-first-attempt -> corrected retry path.
-ADVERSE_CHARS_PER_SECOND = (20.0, 22.0, 24.0, 26.0, 28.0)
 
 
 def _attach(base: TinyTAuKEngine, settings: Settings) -> TinyTAuKEngine:
@@ -205,64 +202,77 @@ def _style_sweep(base: TinyTAuKEngine, settings: Settings, out_dir: Path) -> lis
     return records
 
 
-def _correction_sweep(base: TinyTAuKEngine, settings: Settings, out_dir: Path) -> list[dict]:
-    records: list[dict] = []
-    recovered = False
-    duration_branch_seen = False
+def _correction_fault_injection(
+    base: TinyTAuKEngine,
+    settings: Settings,
+    out_dir: Path,
+) -> list[dict]:
+    """Exercise the real correction loop without depending on a stochastic model failure.
 
-    for cps in ADVERSE_CHARS_PER_SECOND:
+    Every attempt still reaches the live transcription endpoint. For the first
+    attempt only, the harness replaces the returned transcript with a truncated
+    prefix after the live ASR call. That deterministically creates a deletion-heavy
+    quality failure, so TinyTalk must grow the generation horizon, change seed,
+    rerun synthesis, rescore through live ASR, and select a passing later attempt.
+    """
+
+    real_transcribe = engine_module.transcribe_chunk
+    live_transcripts: list[str] = []
+    calls = 0
+
+    def injected_transcribe(wav_bytes: bytes, chunk_text: str, endpoint: str) -> str:
+        nonlocal calls
+        transcript = real_transcribe(wav_bytes, chunk_text, endpoint)
+        live_transcripts.append(transcript)
+        calls += 1
+        if calls == 1:
+            return "The deployment completed successfully."
+        return transcript
+
+    engine_module.transcribe_chunk = injected_transcribe
+    try:
         record = _run(
             base,
-            settings=replace(
-                settings,
-                tinytauk_chars_per_second=cps,
-                max_retries=2,
-            ),
-            name=f"correction-cps-{str(cps).replace('.', '-')}",
+            settings=replace(settings, max_retries=2),
+            name="correction-fault-injected",
             instructions=None,
             out_dir=out_dir,
         )
-        records.append(record)
-        details = record["attempts_detail"]
-        first = details[0]
-        selected = details[record["selected_attempt"]]
+    finally:
+        engine_module.transcribe_chunk = real_transcribe
 
-        if len(details) > 1 and first["deletions"] > first["insertions"]:
-            duration_branch_seen = details[1]["gen_seconds"] > first["gen_seconds"]
+    details = record["attempts_detail"]
+    assert len(details) >= 2, record
+    first = details[0]
+    selected = details[record["selected_attempt"]]
 
-        if (
-            len(details) > 1
-            and not _passes(first, settings.wer_threshold)
-            and _passes(selected, settings.wer_threshold)
-            and record["selected_attempt"] > 0
-        ):
-            recovered = True
-            break
+    assert not _passes(first, settings.wer_threshold), record
+    assert first["deletions"] is not None and first["insertions"] is not None, record
+    assert first["deletions"] > first["insertions"], record
+    assert details[1]["seed"] != first["seed"], record
+    assert details[1]["gen_seconds"] > first["gen_seconds"], record
+    assert record["selected_attempt"] > 0, record
+    assert _passes(selected, settings.wer_threshold), record
+    assert len(live_transcripts) >= 2, record
 
-    print("\nCORRECTION SWEEP")
-    for record in records:
-        print(
-            json.dumps(
-                {
-                    "case": record["case"],
-                    "attempts": record["attempts"],
-                    "selected_attempt": record["selected_attempt"],
-                    "selected_gen_seconds": record["selected_gen_seconds"],
-                    "wer": record["wer"],
-                    "cer": record["cer"],
-                    "attempts_detail": record["attempts_detail"],
-                },
-                indent=2,
-            )
+    record["live_transcripts"] = live_transcripts
+    print("\nCORRECTION FAULT INJECTION")
+    print(
+        json.dumps(
+            {
+                "attempts": record["attempts"],
+                "selected_attempt": record["selected_attempt"],
+                "selected_seed": record["selected_seed"],
+                "selected_gen_seconds": record["selected_gen_seconds"],
+                "wer": record["wer"],
+                "cer": record["cer"],
+                "live_transcripts": live_transcripts,
+                "attempts_detail": details,
+            },
+            indent=2,
         )
-
-    if not recovered:
-        raise AssertionError(
-            "No adverse-duration case produced a real failed-first-attempt -> passing-later-attempt recovery"
-        )
-    if not duration_branch_seen:
-        print("WARNING: recovery succeeded, but no live deletion-heavy duration-growth branch was observed")
-    return records
+    )
+    return [record]
 
 
 def main() -> None:
@@ -289,13 +299,13 @@ def main() -> None:
     base.load()
 
     style = _style_sweep(base, settings, out_dir)
-    correction = _correction_sweep(base, settings, out_dir)
+    correction = _correction_fault_injection(base, settings, out_dir)
     records = {"style": style, "correction": correction}
 
     summary = out_dir / "results.json"
     summary.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
     print(
-        "\nPASS: contrastive style outputs are content-correct and live correction recovered a bad attempt"
+        "\nPASS: contrastive style outputs are content-correct and deterministic correction control flow passed"
     )
     print(f"Results: {summary}")
     print("Listen to style-low-energy.wav and style-high-energy.wav for the final style-adherence check.")
