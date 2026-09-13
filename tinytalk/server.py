@@ -21,9 +21,7 @@ from .engine import create_engine
 settings = load_settings()
 engine = create_engine(settings)
 infer_lock = asyncio.Lock()
-# Use Uvicorn's configured logger hierarchy so structured request telemetry is
-# visible under the normal `uvicorn ... --log-level info` development/service path.
-log = logging.getLogger("uvicorn.error.tinytalk")
+log = logging.getLogger("tinytalk.server")
 
 
 class SpeechRequest(BaseModel):
@@ -48,6 +46,17 @@ class SpeechRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Uvicorn configures its handlers before application startup. Reuse those
+    # handlers for TinyTalk's app-specific logger so INFO telemetry is visible
+    # in service/dev logs without changing the logger name used by tests and
+    # external log filters.
+    uvicorn_log = logging.getLogger("uvicorn.error")
+    if uvicorn_log.handlers and not log.handlers:
+        for handler in uvicorn_log.handlers:
+            log.addHandler(handler)
+        log.setLevel(uvicorn_log.level)
+        log.propagate = False
+
     await run_in_threadpool(engine.load)
     yield
 
