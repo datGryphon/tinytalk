@@ -25,6 +25,7 @@ let
 
   tinytaukRuntimePackages = commonRuntimePackages ++ [
     "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.0.tar.gz"
+    "triton==3.3.1"
   ];
 
   runtimePackages =
