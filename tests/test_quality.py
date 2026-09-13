@@ -37,7 +37,7 @@ def test_char_error_rate_ignores_spacing_after_normalization():
     assert score.rate == pytest.approx(0.0)
 
 
-def test_prompt_leak_requires_aligned_insertions_from_prompt():
+def test_prompt_leak_requires_aligned_unexpected_words_from_prompt():
     quality = evaluate_transcript(
         "The deployment completed successfully.",
         "Speak calmly and deliberately. The deployment completed successfully.",
@@ -47,6 +47,18 @@ def test_prompt_leak_requires_aligned_insertions_from_prompt():
     assert quality.prompt_leak is True
     assert quality.insertions == 4
     assert quality.wer > 0.0
+
+
+def test_prompt_leak_detects_prompt_words_that_replace_target_prefix():
+    quality = evaluate_transcript(
+        "The deployment completed successfully, although it took considerably longer than expected.",
+        "Speak in a tired but relieved, compactly et cetera, although it took considerably longer than expected.",
+        prompt_text="Speak in a tired but relieved technical narrator voice.",
+    )
+
+    assert quality.prompt_leak is True
+    assert quality.substitutions is not None
+    assert quality.substitutions > 0
 
 
 def test_unrelated_insertion_is_not_classified_as_prompt_leak():
