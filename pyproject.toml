@@ -1,6 +1,6 @@
 [project]
 name = "tinytalk"
-description = "OpenAI-compatible NeuTTS server for low-power devices"
+description = "OpenAI-compatible TTS server for modest machines"
 requires-python = ">=3.12"
 dynamic = ["version"]
 authors = [{ email = "calebwastler@gmail.com" }]
@@ -9,16 +9,21 @@ dependencies = [
   "uvicorn[standard]",
   "numpy",
   "spacy",
-  "librosa",
-  "praat-parselmouth",
+]
+
+[project.optional-dependencies]
+neutts = [
   "neutts[all]==1.4.1",
   "torch==2.8.0",
   "torchaudio==2.8.0",
   "torchao==0.13.0",
   "torchtune==0.6.1",
+  "librosa",
+  "praat-parselmouth",
 ]
-
-[project.optional-dependencies]
+tinytauk = [
+  "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.0.tar.gz",
+]
 test = [
   "pytest",
   "httpx",

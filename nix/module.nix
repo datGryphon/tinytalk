@@ -3,20 +3,38 @@
 
 let
   cfg = config.services.tinytalk;
-  python = pkgs.python312;
+  python = if cfg.backend == "tinytauk" then pkgs.python313 else pkgs.python312;
   pythonTarget = "/var/lib/tinytalk/python";
-  runtimePackages = [
+
+  commonRuntimePackages = [
+    "fastapi"
+    "uvicorn[standard]"
+    "numpy"
+    "spacy"
+  ];
+
+  neuttsRuntimePackages = commonRuntimePackages ++ [
     "torch==2.8.0+cpu"
     "torchaudio==2.8.0+cpu"
     "torchao==0.13.0"
     "torchtune==0.6.1"
     "neutts[all]==1.4.1"
-    "fastapi"
-    "uvicorn[standard]"
-    "spacy"
     "librosa"
     "praat-parselmouth"
   ];
+
+  tinytaukRuntimePackages = commonRuntimePackages ++ [
+    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.0.tar.gz"
+  ];
+
+  runtimePackages =
+    if cfg.backend == "tinytauk"
+    then tinytaukRuntimePackages
+    else neuttsRuntimePackages;
+
+  defaultMemoryHigh = if cfg.backend == "tinytauk" then "17G" else "5000M";
+  defaultMemoryMax = if cfg.backend == "tinytauk" then "20G" else "6000M";
+
   prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
     builtins.replaceStrings
       [ "@python@" "@uv@" ]
@@ -29,7 +47,13 @@ let
 in
 {
   options.services.tinytalk = {
-    enable = lib.mkEnableOption "OpenAI-compatible NeuTTS tinytalk server";
+    enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
+
+    backend = lib.mkOption {
+      type = lib.types.enum [ "neutts" "tinytauk" ];
+      default = "neutts";
+      description = "Synthesis backend for this service instance.";
+    };
 
     model = lib.mkOption {
       type = lib.types.str;
@@ -61,6 +85,24 @@ in
       description = "Reference transcript text file matching refCodes.";
     };
 
+    tinytaukModel = lib.mkOption {
+      type = lib.types.str;
+      default = "tencent/AuK-Flash";
+      description = "AuK-Flash model repository passed to TinyTAuK.";
+    };
+
+    tinytaukQwenModel = lib.mkOption {
+      type = lib.types.str;
+      default = "Qwen/Qwen2.5-Omni-3B";
+      description = "Qwen conditioner repository passed to TinyTAuK.";
+    };
+
+    tinytaukCharsPerSecond = lib.mkOption {
+      type = lib.types.float;
+      default = 14.0;
+      description = "Text-duration estimate used by TinyTAuK before applying request speed.";
+    };
+
     host = lib.mkOption {
       type = lib.types.str;
       default = "0.0.0.0";
@@ -76,7 +118,7 @@ in
     maxCharsPerChunk = lib.mkOption {
       type = lib.types.ints.positive;
       default = 180;
-      description = "Maximum text characters sent to one NeuTTS infer() call.";
+      description = "Maximum text characters sent to one synthesis call.";
     };
 
     interChunkSilenceMs = lib.mkOption {
@@ -88,67 +130,55 @@ in
     temperature = lib.mkOption {
       type = lib.types.float;
       default = 1.0;
-      description = "Sampling temperature for the NeuTTS backbone (1.0 = NeuTTS default). Lower is more stable with less looping. Tune per voice or deployment.";
+      description = "Sampling temperature for the NeuTTS backbone.";
     };
 
     repeatPenalty = lib.mkOption {
       type = lib.types.float;
       default = 1.0;
-      description = "Repeat penalty for the NeuTTS backbone, discouraging looped/duplicated speech.";
+      description = "Repeat penalty for the NeuTTS backbone.";
     };
 
     repeatPenaltyRerollStep = lib.mkOption {
       type = lib.types.float;
       default = 0.10;
-      description = "Incremental repeat-penalty added per retry attempt in the per-chunk reroll loop.";
+      description = "Incremental repeat penalty added per NeuTTS retry attempt.";
     };
 
     maxRetries = lib.mkOption {
       type = lib.types.ints.between 0 100;
       default = 2;
-      description = "Maximum number of retry attempts per chunk.";
+      description = "Maximum number of NeuTTS retry attempts per chunk.";
     };
 
     werEndpoint = lib.mkOption {
       type = lib.types.str;
       default = "";
-      description = "Base URL for WER transcription evaluation. Empty string disables live transcription and falls back to chunk confidence.";
+      description = "Base URL for NeuTTS WER transcription evaluation. Empty disables live transcription.";
     };
 
     werThreshold = lib.mkOption {
       type = lib.types.float;
       default = 0.25;
-      description = "WER threshold above which a chunk is accepted. Lower scores mean the chunk is kept as-is from the reroll loop.";
+      description = "NeuTTS WER threshold at or below which a chunk is accepted.";
     };
 
     watermark = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = ''
-        Enable perth audio watermarking. Disabled by default because the perth
-        watermarker leaks ~44 MB per synthesis call (PyTorch CPU caching allocator
-        retains freed tensors). Only enable if you need provenance watermarks.
-      '';
+      description = "Enable NeuTTS perth audio watermarking.";
     };
 
     memoryHigh = lib.mkOption {
-      type = lib.types.str;
-      default = "5000M";
-      description = ''
-        systemd MemoryHigh soft cap for the service. Safety net against the
-        perth-watermarker memory leak; harmless headroom when watermarking is
-        disabled.
-      '';
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "systemd MemoryHigh. Null selects the backend default (5 GB NeuTTS, 17 GB TinyTAuK).";
     };
 
     memoryMax = lib.mkOption {
-      type = lib.types.str;
-      default = "6000M";
-      description = ''
-        systemd MemoryMax hard cap. With Restart=on-failure (set below) the
-        service is recycled if it hits this, bounding the perth-watermarker
-        leak.
-      '';
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "systemd MemoryMax. Null selects the backend default (6 GB NeuTTS, 20 GB TinyTAuK).";
     };
 
     runtimeIndexUrl = lib.mkOption {
@@ -171,6 +201,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.backend != "tinytauk" || cfg.tinytaukCharsPerSecond > 0.0;
+        message = "services.tinytalk.tinytaukCharsPerSecond must be positive";
+      }
+    ];
+
     users.users.tinytalk = {
       isSystemUser = true;
       group = "tinytalk";
@@ -179,17 +216,21 @@ in
     users.groups.tinytalk = { };
 
     systemd.services.tinytalk = {
-      description = "tinytalk OpenAI-compatible NeuTTS server";
+      description = "tinytalk OpenAI-compatible TTS server";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
 
       environment = {
+        TINYTALK_BACKEND = cfg.backend;
         TINYTALK_MODEL = cfg.model;
         TINYTALK_CODEC = cfg.codec;
         TINYTALK_BACKBONE_DEVICE = cfg.backboneDevice;
         TINYTALK_REF_CODES = toString cfg.refCodes;
         TINYTALK_REF_TEXT = toString cfg.refText;
+        TINYTALK_TINYTAUK_MODEL = cfg.tinytaukModel;
+        TINYTALK_TINYTAUK_QWEN_MODEL = cfg.tinytaukQwenModel;
+        TINYTALK_TINYTAUK_CHARS_PER_SECOND = toString cfg.tinytaukCharsPerSecond;
         TINYTALK_HOST = cfg.host;
         TINYTALK_PORT = toString cfg.port;
         TINYTALK_MAX_CHARS_PER_CHUNK = toString cfg.maxCharsPerChunk;
@@ -206,7 +247,7 @@ in
         TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
         TINYTALK_RUNTIME_REQUIREMENTS = toString requirementsFile;
         PYTHONPATH = "${self.outPath}:${pythonTarget}";
-        LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
+        LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
         HOME = "/var/lib/tinytalk";
         UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
       };
@@ -221,9 +262,9 @@ in
         PrivateTmp = true;
         Restart = "on-failure";
         RestartSec = 3;
-        TimeoutStartSec = "15min";
-        MemoryHigh = cfg.memoryHigh;
-        MemoryMax = cfg.memoryMax;
+        TimeoutStartSec = if cfg.backend == "tinytauk" then "30min" else "15min";
+        MemoryHigh = if cfg.memoryHigh != null then cfg.memoryHigh else defaultMemoryHigh;
+        MemoryMax = if cfg.memoryMax != null then cfg.memoryMax else defaultMemoryMax;
         StateDirectory = "tinytalk";
         StateDirectoryMode = "0750";
       };

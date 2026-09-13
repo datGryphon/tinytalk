@@ -4,10 +4,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+pytest.importorskip("neutts")
+
 from tinytalk import server
+from tinytalk.backends.neutts import NeuTTSEngine
 from tinytalk.chunking import split_text
 from tinytalk.config import Settings
-from tinytalk.engine import TinyTalkEngine
 
 pytestmark = pytest.mark.skipif(
     os.getenv("TINYTALK_RUN_INTEGRATION") != "1",
@@ -31,7 +33,7 @@ def test_sentencizer_edge_cases_chunk_cleanly():
 def test_real_speech_outputs_wavs(monkeypatch):
     voices = Path(__file__).parent.parent / "voices"
     settings = Settings(ref_codes=voices / "jo.pt", ref_text=voices / "jo.txt")
-    monkeypatch.setattr(server, "engine", TinyTalkEngine(settings))
+    monkeypatch.setattr(server, "engine", NeuTTSEngine(settings))
 
     artifact_dir = Path("test_artifacts")
     artifact_dir.mkdir(exist_ok=True)

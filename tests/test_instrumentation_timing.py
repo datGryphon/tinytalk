@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+pytest.importorskip("neutts")
+
 from tinytalk.config import Settings
 from tinytalk.engine import TinyTalkEngine
 
@@ -27,9 +29,7 @@ def _engine(*, max_retries: int = 0) -> TinyTalkEngine:
 
 def _audio() -> np.ndarray:
     samples = 24_000
-    return (0.08 * np.sin(np.linspace(0, 2 * np.pi * 440, samples))).astype(
-        np.float32
-    )
+    return (0.08 * np.sin(np.linspace(0, 2 * np.pi * 440, samples))).astype(np.float32)
 
 
 def test_failed_infer_attempt_keeps_elapsed_inference_time():
@@ -45,14 +45,9 @@ def test_failed_infer_attempt_keeps_elapsed_inference_time():
         return _audio()
 
     engine.tts.infer = infer
-
     with (
         patch.object(engine, "_apply_generation_settings"),
-        patch.object(
-            engine,
-            "_chunk_wer",
-            return_value=(0.1, "confidence", False),
-        ),
+        patch.object(engine, "_chunk_wer", return_value=(0.1, "confidence", False)),
     ):
         result = engine.synthesize("hello world")
 
@@ -73,12 +68,8 @@ def test_f0_timing_includes_pitch_analysis():
 
     with (
         patch.object(engine, "_apply_generation_settings"),
-        patch.object(
-            engine,
-            "_chunk_wer",
-            return_value=(0.1, "confidence", False),
-        ),
-        patch("tinytalk.engine.compute_f0_mean", side_effect=slow_f0),
+        patch.object(engine, "_chunk_wer", return_value=(0.1, "confidence", False)),
+        patch("tinytalk.backends.neutts.compute_f0_mean", side_effect=slow_f0),
     ):
         result = engine.synthesize("hello world")
 
