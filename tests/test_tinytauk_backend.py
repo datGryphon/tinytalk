@@ -97,13 +97,24 @@ def test_load_uses_models_and_warms_full_generation(monkeypatch):
     assert engine.sample_rate == 24_000
 
 
-def test_instructions_are_composed_for_auk():
+def test_instructions_use_canonical_auk_serialization():
     engine = _engine()
     engine.synthesize("hello world", instructions="Speak calmly")
 
-    call = engine.tts.calls[0]
-    assert "Speak calmly" in call["instruction"]
-    assert "hello world" in call["instruction"]
+    assert engine.tts.calls[0]["instruction"] == (
+        'Based on the following description: "Speak calmly", '
+        'generate speech content "hello world".'
+    )
+
+
+def test_default_description_uses_canonical_auk_serialization():
+    engine = _engine()
+    engine.synthesize("hello world")
+
+    assert engine.tts.calls[0]["instruction"] == (
+        'Based on the following description: "A clear, natural speaking voice", '
+        'generate speech content "hello world".'
+    )
 
 
 def test_speed_scales_target_duration():

@@ -14,10 +14,7 @@ from ..engine import RequestTiming, SynthesisResult
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
-_PROMPT_SCAFFOLD = (
-    "Generate speech based on the following description. "
-    "The content to speak is."
-)
+_PROMPT_SCAFFOLD = "Based on the following description, generate speech content."
 _WARMUP_TEXT = (
     "TinyTalk is warming the speech runtime before serving requests so the first user synthesis "
     "runs on the compiled path."
@@ -301,8 +298,8 @@ class TinyTAuKEngine:
         quoted_description = json.dumps(cls._description(instructions), ensure_ascii=False)
         quoted_text = json.dumps(text, ensure_ascii=False)
         return (
-            "Generate speech based on the following description: "
-            f"{quoted_description}. The content to speak is: {quoted_text}."
+            f"Based on the following description: {quoted_description}, "
+            f"generate speech content {quoted_text}."
         )
 
     @staticmethod
