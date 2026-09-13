@@ -23,7 +23,10 @@ HIGH_STYLE = (
     "An excited, energetic announcer with a bright high-pitched voice, fast lively pacing, "
     "strong pitch variation, emphatic stress, and animated delivery."
 )
-ADVERSE_CHARS_PER_SECOND = (17.0, 16.5, 16.0)
+# The first sweep showed that 16-17 chars/sec still leaves ample horizon for this
+# sentence. Push farther into under-budget territory so at least one case should
+# exercise a genuine failed-first-attempt -> corrected retry path.
+ADVERSE_CHARS_PER_SECOND = (20.0, 22.0, 24.0, 26.0, 28.0)
 
 
 def _attach(base: TinyTAuKEngine, settings: Settings) -> TinyTAuKEngine:
@@ -183,13 +186,22 @@ def _style_sweep(base: TinyTAuKEngine, settings: Settings, out_dir: Path) -> lis
         semitones = 12.0 * math.log2(high_f0 / low_f0)
 
     print("\nSTYLE CONTRAST")
-    print(json.dumps({
-        "low": low["acoustics"],
-        "high": high["acoustics"],
-        "high_minus_low_rms_db": high["acoustics"]["rms_dbfs"] - low["acoustics"]["rms_dbfs"],
-        "high_minus_low_active_ratio": high["acoustics"]["active_ratio"] - low["acoustics"]["active_ratio"],
-        "high_minus_low_pitch_semitones": semitones,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "low": low["acoustics"],
+                "high": high["acoustics"],
+                "high_minus_low_rms_db": (
+                    high["acoustics"]["rms_dbfs"] - low["acoustics"]["rms_dbfs"]
+                ),
+                "high_minus_low_active_ratio": (
+                    high["acoustics"]["active_ratio"] - low["acoustics"]["active_ratio"]
+                ),
+                "high_minus_low_pitch_semitones": semitones,
+            },
+            indent=2,
+        )
+    )
     return records
 
 
@@ -229,15 +241,20 @@ def _correction_sweep(base: TinyTAuKEngine, settings: Settings, out_dir: Path) -
 
     print("\nCORRECTION SWEEP")
     for record in records:
-        print(json.dumps({
-            "case": record["case"],
-            "attempts": record["attempts"],
-            "selected_attempt": record["selected_attempt"],
-            "selected_gen_seconds": record["selected_gen_seconds"],
-            "wer": record["wer"],
-            "cer": record["cer"],
-            "attempts_detail": record["attempts_detail"],
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "case": record["case"],
+                    "attempts": record["attempts"],
+                    "selected_attempt": record["selected_attempt"],
+                    "selected_gen_seconds": record["selected_gen_seconds"],
+                    "wer": record["wer"],
+                    "cer": record["cer"],
+                    "attempts_detail": record["attempts_detail"],
+                },
+                indent=2,
+            )
+        )
 
     if not recovered:
         raise AssertionError(
@@ -277,7 +294,9 @@ def main() -> None:
 
     summary = out_dir / "results.json"
     summary.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
-    print("\nPASS: contrastive style outputs are content-correct and live correction recovered a bad attempt")
+    print(
+        "\nPASS: contrastive style outputs are content-correct and live correction recovered a bad attempt"
+    )
     print(f"Results: {summary}")
     print("Listen to style-low-energy.wav and style-high-energy.wav for the final style-adherence check.")
 
