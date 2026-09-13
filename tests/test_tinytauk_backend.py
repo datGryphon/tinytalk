@@ -143,11 +143,17 @@ def test_backend_does_not_loudness_normalize():
     assert float(np.max(result.audio)) <= 0.021
 
 
-def test_prompt_leak_rerolls_with_new_seed_and_shorter_horizon(monkeypatch):
+def test_prompt_leak_rerolls_with_new_seed_and_same_horizon(monkeypatch):
     engine = _engine(max_retries=2, wer_endpoint="http://asr.local")
     scores = iter(
         [
-            _quality(wer=0.7, cer=0.5, insertions=4, prompt_leak=True),
+            _quality(
+                wer=0.7,
+                cer=0.5,
+                insertions=4,
+                substitutions=3,
+                prompt_leak=True,
+            ),
             _quality(wer=0.0, cer=0.0),
         ]
     )
@@ -158,7 +164,7 @@ def test_prompt_leak_rerolls_with_new_seed_and_shorter_horizon(monkeypatch):
     calls = engine.tts.calls
     assert [call["seed"] for call in calls] == [100, 101]
     assert calls[0]["gen_seconds"] == pytest.approx(2.0)
-    assert calls[1]["gen_seconds"] == pytest.approx(1.76)
+    assert calls[1]["gen_seconds"] == pytest.approx(2.0)
 
     chunk = result.timing.chunks[0]
     assert chunk["attempts"] == 2
@@ -166,6 +172,22 @@ def test_prompt_leak_rerolls_with_new_seed_and_shorter_horizon(monkeypatch):
     assert chunk["attempts_detail"][0]["accepted"] is False
     assert chunk["attempts_detail"][1]["accepted"] is True
     assert chunk["seed"] == 101
+
+
+def test_non_leak_insertions_shrink_generation_horizon(monkeypatch):
+    engine = _engine(max_retries=1, wer_endpoint="http://asr.local")
+    scores = iter(
+        [
+            _quality(wer=0.5, cer=0.3, insertions=3),
+            _quality(wer=0.0, cer=0.0),
+        ]
+    )
+    monkeypatch.setattr(backend_module, "evaluate_audio", lambda *args, **kwargs: next(scores))
+
+    engine.synthesize("x" * 28)
+
+    assert engine.tts.calls[0]["gen_seconds"] == pytest.approx(2.0)
+    assert engine.tts.calls[1]["gen_seconds"] == pytest.approx(1.84)
 
 
 def test_deletions_grow_generation_horizon(monkeypatch):
