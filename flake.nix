@@ -30,18 +30,20 @@
     {
       nixosModules.default = import ./nix/module.nix { inherit self; };
 
-      devShells.${system}.default = mkDevShell {
-        python = pkgs.python312;
-        venv = ".venv";
-        extras = "neutts,test";
-        backend = "neutts";
-      };
+      devShells.${system} = {
+        default = mkDevShell {
+          python = pkgs.python312;
+          venv = ".venv";
+          extras = "neutts,test";
+          backend = "neutts";
+        };
 
-      devShells.${system}.tinytauk = mkDevShell {
-        python = pkgs.python313;
-        venv = ".venv-tinytauk";
-        extras = "tinytauk,test";
-        backend = "tinytauk";
+        tinytauk = mkDevShell {
+          python = pkgs.python313;
+          venv = ".venv-tinytauk";
+          extras = "tinytauk,test";
+          backend = "tinytauk";
+        };
       };
     };
 }
