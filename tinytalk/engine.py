@@ -6,7 +6,7 @@ from typing import Protocol
 import numpy as np
 
 from .config import Settings
-from .wer import transcribe_chunk
+from .quality import transcribe_chunk
 
 
 @dataclass(frozen=True)
