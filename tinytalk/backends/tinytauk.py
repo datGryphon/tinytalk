@@ -23,7 +23,6 @@ _WARMUP_TEXT = (
     "runs on the compiled path."
 )
 _WARMUP_SECONDS = 9.0
-_DURATION_SHRINK_PROMPT_LEAK = 0.88
 _DURATION_SHRINK_INSERTIONS = 0.92
 _DURATION_GROW_DELETIONS = 1.10
 _DURATION_MIN_FACTOR = 0.75
@@ -265,8 +264,13 @@ class TinyTAuKEngine:
         current_duration: float,
         quality: QualityResult,
     ) -> float:
+        # Prompt leakage can replace requested words at the beginning/middle of
+        # an utterance, not merely consume spare time at the end. Shortening that
+        # case risks truncating even more requested speech; reroll it by seed and
+        # preserve the caller-derived duration. Duration correction is reserved
+        # for non-leak edit shapes that actually indicate over/under generation.
         if quality.prompt_leak:
-            adjusted = current_duration * _DURATION_SHRINK_PROMPT_LEAK
+            adjusted = current_duration
         elif (
             quality.insertions is not None
             and quality.deletions is not None
