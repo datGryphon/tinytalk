@@ -24,8 +24,7 @@ let
   ];
 
   tinytaukRuntimePackages = commonRuntimePackages ++ [
-    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.0.tar.gz"
-    "triton==3.3.1"
+    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/heads/fix/v0.1.1.tar.gz"
   ];
 
   runtimePackages =
@@ -33,21 +32,7 @@ let
     then tinytaukRuntimePackages
     else neuttsRuntimePackages;
 
-  defaultMemoryHigh = if cfg.backend == "tinytauk" then "17G" else "5000M";
-  defaultMemoryMax = if cfg.backend == "tinytauk" then "20G" else "6000M";
-
-  prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
-    builtins.replaceStrings
-      [ "@python@" "@uv@" ]
-      [ "${python}" "${pkgs.uv}" ]
-      (builtins.readFile ./tinytalk-prestart.sh)
-  );
-  requirementsFile = pkgs.writeText "tinytalk-runtime-requirements.txt" (
-    lib.concatStringsSep "\n" cfg.runtimePackages + "\n"
-  );
-in
-{
-  options.services.tinytalk = {
+  commonOptions = {
     enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
 
     backend = lib.mkOption {
@@ -56,6 +41,52 @@ in
       description = "Synthesis backend for this service instance.";
     };
 
+    host = lib.mkOption {
+      type = lib.types.str;
+      default = "0.0.0.0";
+      description = "Bind host for uvicorn.";
+    };
+
+    port = lib.mkOption {
+      type = lib.types.port;
+      default = 9002;
+      description = "Bind port for uvicorn.";
+    };
+
+    maxCharsPerChunk = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 180;
+      description = "Maximum text characters sent to one synthesis call.";
+    };
+
+    interChunkSilenceMs = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 60;
+      description = "Zero-audio pause inserted between synthesized chunks.";
+    };
+  };
+
+  qualityOptions = {
+    maxRetries = lib.mkOption {
+      type = lib.types.ints.between 0 100;
+      default = 2;
+      description = "Maximum number of quality-gated retry attempts per chunk.";
+    };
+
+    werEndpoint = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Base URL for transcription-based WER/CER evaluation. Empty uses the local confidence fallback.";
+    };
+
+    werThreshold = lib.mkOption {
+      type = lib.types.float;
+      default = 0.25;
+      description = "Maximum WER/CER accepted by the shared speech-quality gate.";
+    };
+  };
+
+  neuttsOptions = {
     model = lib.mkOption {
       type = lib.types.str;
       default = "neuphonic/neutts-nano-q4-gguf";
@@ -86,48 +117,6 @@ in
       description = "Reference transcript text file matching refCodes.";
     };
 
-    tinytaukModel = lib.mkOption {
-      type = lib.types.str;
-      default = "tencent/AuK-Flash";
-      description = "AuK-Flash model repository passed to TinyTAuK.";
-    };
-
-    tinytaukQwenModel = lib.mkOption {
-      type = lib.types.str;
-      default = "Qwen/Qwen2.5-Omni-3B";
-      description = "Qwen conditioner repository passed to TinyTAuK.";
-    };
-
-    tinytaukCharsPerSecond = lib.mkOption {
-      type = lib.types.float;
-      default = 14.0;
-      description = "Text-duration estimate used by TinyTAuK before applying request speed.";
-    };
-
-    host = lib.mkOption {
-      type = lib.types.str;
-      default = "0.0.0.0";
-      description = "Bind host for uvicorn.";
-    };
-
-    port = lib.mkOption {
-      type = lib.types.port;
-      default = 9002;
-      description = "Bind port for uvicorn.";
-    };
-
-    maxCharsPerChunk = lib.mkOption {
-      type = lib.types.ints.positive;
-      default = 180;
-      description = "Maximum text characters sent to one synthesis call.";
-    };
-
-    interChunkSilenceMs = lib.mkOption {
-      type = lib.types.ints.unsigned;
-      default = 60;
-      description = "Zero-audio pause inserted between synthesized chunks.";
-    };
-
     temperature = lib.mkOption {
       type = lib.types.float;
       default = 1.0;
@@ -146,30 +135,34 @@ in
       description = "Incremental repeat penalty added per NeuTTS retry attempt.";
     };
 
-    maxRetries = lib.mkOption {
-      type = lib.types.ints.between 0 100;
-      default = 2;
-      description = "Maximum number of NeuTTS retry attempts per chunk.";
-    };
-
-    werEndpoint = lib.mkOption {
-      type = lib.types.str;
-      default = "";
-      description = "Base URL for NeuTTS WER transcription evaluation. Empty disables live transcription.";
-    };
-
-    werThreshold = lib.mkOption {
-      type = lib.types.float;
-      default = 0.25;
-      description = "NeuTTS WER threshold at or below which a chunk is accepted.";
-    };
-
     watermark = lib.mkOption {
       type = lib.types.bool;
       default = false;
       description = "Enable NeuTTS perth audio watermarking.";
     };
+  };
 
+  tinytaukOptions = {
+    tinytaukModel = lib.mkOption {
+      type = lib.types.str;
+      default = "tencent/AuK-Flash";
+      description = "AuK-Flash model repository passed to TinyTAuK.";
+    };
+
+    tinytaukQwenModel = lib.mkOption {
+      type = lib.types.str;
+      default = "Qwen/Qwen2.5-Omni-3B";
+      description = "Qwen conditioner repository passed to TinyTAuK.";
+    };
+
+    tinytaukCharsPerSecond = lib.mkOption {
+      type = lib.types.float;
+      default = 14.0;
+      description = "Text-duration estimate used by TinyTAuK before applying request speed.";
+    };
+  };
+
+  runtimeOptions = {
     memoryHigh = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -201,6 +194,76 @@ in
     };
   };
 
+  commonEnvironment = {
+    TINYTALK_BACKEND = cfg.backend;
+    TINYTALK_HOST = cfg.host;
+    TINYTALK_PORT = toString cfg.port;
+    TINYTALK_MAX_CHARS_PER_CHUNK = toString cfg.maxCharsPerChunk;
+    TINYTALK_INTER_CHUNK_SILENCE_MS = toString cfg.interChunkSilenceMs;
+  };
+
+  qualityEnvironment = {
+    TINYTALK_MAX_RETRIES = toString cfg.maxRetries;
+    TINYTALK_WER_ENDPOINT = cfg.werEndpoint;
+    TINYTALK_WER_THRESHOLD = toString cfg.werThreshold;
+  };
+
+  neuttsEnvironment = {
+    TINYTALK_MODEL = cfg.model;
+    TINYTALK_CODEC = cfg.codec;
+    TINYTALK_BACKBONE_DEVICE = cfg.backboneDevice;
+    TINYTALK_REF_CODES = toString cfg.refCodes;
+    TINYTALK_REF_TEXT = toString cfg.refText;
+    TINYTALK_TEMPERATURE = toString cfg.temperature;
+    TINYTALK_REPEAT_PENALTY = toString cfg.repeatPenalty;
+    TINYTALK_REPEAT_PENALTY_REROLL_STEP = toString cfg.repeatPenaltyRerollStep;
+    TINYTALK_WATERMARK = lib.boolToString cfg.watermark;
+  };
+
+  tinytaukEnvironment = {
+    TINYTALK_TINYTAUK_MODEL = cfg.tinytaukModel;
+    TINYTALK_TINYTAUK_QWEN_MODEL = cfg.tinytaukQwenModel;
+    TINYTALK_TINYTAUK_CHARS_PER_SECOND = toString cfg.tinytaukCharsPerSecond;
+  };
+
+  backendEnvironment =
+    if cfg.backend == "tinytauk"
+    then tinytaukEnvironment
+    else neuttsEnvironment;
+
+  defaultMemoryHigh = if cfg.backend == "tinytauk" then "17G" else "5000M";
+  defaultMemoryMax = if cfg.backend == "tinytauk" then "20G" else "6000M";
+
+  prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
+    builtins.replaceStrings
+      [ "@python@" "@uv@" ]
+      [ "${python}" "${pkgs.uv}" ]
+      (builtins.readFile ./tinytalk-prestart.sh)
+  );
+
+  requirementsFile = pkgs.writeText "tinytalk-runtime-requirements.txt" (
+    lib.concatStringsSep "\n" cfg.runtimePackages + "\n"
+  );
+
+  runtimeEnvironment = {
+    TINYTALK_PYTHON_TARGET = pythonTarget;
+    TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
+    TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
+    TINYTALK_RUNTIME_REQUIREMENTS = toString requirementsFile;
+    PYTHONPATH = "${self.outPath}:${pythonTarget}";
+    LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
+    HOME = "/var/lib/tinytalk";
+    UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
+  };
+in
+{
+  options.services.tinytalk =
+    commonOptions
+    // qualityOptions
+    // neuttsOptions
+    // tinytaukOptions
+    // runtimeOptions;
+
   config = lib.mkIf cfg.enable {
     assertions = [
       {
@@ -222,36 +285,11 @@ in
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
 
-      environment = {
-        TINYTALK_BACKEND = cfg.backend;
-        TINYTALK_MODEL = cfg.model;
-        TINYTALK_CODEC = cfg.codec;
-        TINYTALK_BACKBONE_DEVICE = cfg.backboneDevice;
-        TINYTALK_REF_CODES = toString cfg.refCodes;
-        TINYTALK_REF_TEXT = toString cfg.refText;
-        TINYTALK_TINYTAUK_MODEL = cfg.tinytaukModel;
-        TINYTALK_TINYTAUK_QWEN_MODEL = cfg.tinytaukQwenModel;
-        TINYTALK_TINYTAUK_CHARS_PER_SECOND = toString cfg.tinytaukCharsPerSecond;
-        TINYTALK_HOST = cfg.host;
-        TINYTALK_PORT = toString cfg.port;
-        TINYTALK_MAX_CHARS_PER_CHUNK = toString cfg.maxCharsPerChunk;
-        TINYTALK_INTER_CHUNK_SILENCE_MS = toString cfg.interChunkSilenceMs;
-        TINYTALK_TEMPERATURE = toString cfg.temperature;
-        TINYTALK_REPEAT_PENALTY = toString cfg.repeatPenalty;
-        TINYTALK_REPEAT_PENALTY_REROLL_STEP = toString cfg.repeatPenaltyRerollStep;
-        TINYTALK_MAX_RETRIES = toString cfg.maxRetries;
-        TINYTALK_WER_ENDPOINT = cfg.werEndpoint;
-        TINYTALK_WER_THRESHOLD = toString cfg.werThreshold;
-        TINYTALK_WATERMARK = lib.boolToString cfg.watermark;
-        TINYTALK_PYTHON_TARGET = pythonTarget;
-        TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
-        TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
-        TINYTALK_RUNTIME_REQUIREMENTS = toString requirementsFile;
-        PYTHONPATH = "${self.outPath}:${pythonTarget}";
-        LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
-        HOME = "/var/lib/tinytalk";
-        UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
-      };
+      environment =
+        commonEnvironment
+        // qualityEnvironment
+        // backendEnvironment
+        // runtimeEnvironment;
 
       path =
         [ pkgs.coreutils pkgs.uv python pkgs.ffmpeg-headless ]
