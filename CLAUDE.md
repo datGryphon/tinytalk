@@ -31,10 +31,10 @@ nix develop .#tinytauk
 pytest
 ```
 
-The shells intentionally use separate virtual environments. TinyTAuK v0.1.0
-requires Python 3.13 / Torch 2.7.1 while current NeuTTS uses a newer
-Torch/Transformers stack. Do not try to solve this by co-installing both ML
-backends into one environment.
+The shells intentionally use separate virtual environments. TinyTAuK requires
+Python 3.13 / Torch 2.7.1 while current NeuTTS uses a newer Torch/Transformers
+stack. Do not try to solve this by co-installing both ML backends into one
+environment.
 
 ## Conventions
 
@@ -53,18 +53,23 @@ feature flags unrelated to real backend differences.
   Backend engines expose `load()`, `synthesize()`, `loaded`, and `model_name`.
 - Long input chunking stays in `chunking.py`; backend implementations should not
   invent competing chunkers.
+- Shared correctness evaluation stays in `quality.py`. Backend-specific retry
+  policy stays with the backend because NeuTTS and TinyTAuK have different
+  controls and failure modes.
 - Audio stays float `[-1, 1]` through the pipeline until final WAV/codec encoding.
 - NeuTTS tuning behavior stays in `backends/neutts.py`: repeat-penalty rerolls,
-  WER/confidence selection, loudness normalization, and F0 boundary smoothing.
+  shared quality evaluation, loudness normalization, and F0 boundary smoothing.
+  NeuTTS-only audio transforms live in `backends/neutts_audio.py`.
 - TinyTAuK-specific model/runtime logic stays in the TinyTAuK repository. The
   TinyTalk adapter should only compose AuK instructions, estimate target duration,
-  call TinyTAuK, and perform minimal stitching-safe post-processing.
+  call TinyTAuK, apply its local quality/retry policy, and perform minimal
+  stitching-safe post-processing.
 - Do not apply NeuTTS loudness or F0 normalization to TinyTAuK output. AuK uses
   natural-language instructions for expressive pitch/loudness/prosody, and those
   transforms would erase intended behavior.
-- TinyTAuK `instructions` are composed into AuK's instruction format. `speed`
-  adjusts TinyTalk's target-duration estimate. `voice` remains ignored until
-  TinyTAuK implements reference-audio generation.
+- TinyTAuK `instructions` are composed into AuK's canonical Instruct-TTS format.
+  `speed` adjusts TinyTalk's target-duration estimate. `voice` remains ignored
+  until TinyTAuK implements reference-audio generation.
 - TinyTAuK uses a disposable generation during `load()` so its lazy VAE compile
   finishes before `/health` reports ready.
 - Do not silently change tuned NeuTTS values or the TinyTAuK duration baseline.
@@ -80,19 +85,24 @@ feature flags unrelated to real backend differences.
 - Start server: `uvicorn tinytalk.server:app`
 - Build/evaluate flake: `nix flake check` and `nix eval .#nixosModules.default`
 
+Set `TINYTALK_WER_ENDPOINT` during the real NeuTTS integration run when the
+shared live WER/CER transcription path also needs validation.
+
 ## Architecture
 
 ```text
 tinytalk/
   server.py                 FastAPI API, lifespan, request lock
   engine.py                 shared SynthesisResult/protocol and backend factory
+  quality.py                shared transcription, WER/CER, edit and leak scoring
+  wer.py                    compatibility wrapper around shared quality helpers
   backends/
-    neutts.py               NeuTTS load/generate/reroll/postprocess path
+    neutts.py               NeuTTS load/generate/reroll policy
+    neutts_audio.py         NeuTTS-only RMS/F0 audio transforms
     tinytauk.py             TinyTAuK adapter and AuK instruction/duration policy
   config.py                 environment-backed Settings
   chunking.py               sentence/phrase/word chunking
-  audio.py                  WAV/codec helpers and NeuTTS audio transforms
-  wer.py                    optional remote WER scoring helper
+  audio.py                  shared WAV/codec and minimal splice-safe helpers
 
 nix/
   module.nix                backend-aware NixOS service/runtime selection
@@ -121,8 +131,8 @@ POST /v1/audio/speech
 ### NeuTTS backend
 
 The existing NeuTTS backend keeps its current behavior: reference codes/text,
-sampling overrides, per-chunk retry/WER selection, trim/RMS/peak/edge cleanup,
-F0 boundary smoothing, and inter-chunk silence.
+sampling overrides, per-chunk repeat-penalty retries, shared quality scoring,
+trim/RMS/peak/edge cleanup, F0 boundary smoothing, and inter-chunk silence.
 
 NeuTTS limitations belong upstream unless TinyTalk orchestration can address them
 without forking NeuTTS.
@@ -136,10 +146,12 @@ layer. The adapter:
 2. performs one disposable warmup generation;
 3. chunks text with TinyTalk's existing chunker;
 4. estimates generation duration from characters/second and request `speed`;
-5. converts optional request `instructions` into AuK's natural-language style
-   description;
-6. uses deterministic-but-distinct seeds across chunks;
-7. trims splice-edge silence, peak-limits, edge-fades, and concatenates.
+5. serializes optional request `instructions` with AuK's canonical Instruct-TTS
+   template;
+6. uses shared WER/CER and prompt-leak scoring for correctness checks;
+7. rerolls with deterministic-but-distinct seeds and adjusts duration for
+   insertion/deletion-heavy failures;
+8. trims splice-edge silence, peak-limits, edge-fades, and concatenates.
 
 Do not move model architecture, quantization, checkpoint loading, Qwen
 conditioning, or VAE compilation code into TinyTalk. Those belong in TinyTAuK.
@@ -155,6 +167,9 @@ Shared:
 | `TINYTALK_PORT` | `services.tinytalk.port` | `9002` |
 | `TINYTALK_MAX_CHARS_PER_CHUNK` | `services.tinytalk.maxCharsPerChunk` | `180` |
 | `TINYTALK_INTER_CHUNK_SILENCE_MS` | `services.tinytalk.interChunkSilenceMs` | `60` |
+| `TINYTALK_MAX_RETRIES` | `services.tinytalk.maxRetries` | `2` |
+| `TINYTALK_WER_ENDPOINT` | `services.tinytalk.werEndpoint` | empty |
+| `TINYTALK_WER_THRESHOLD` | `services.tinytalk.werThreshold` | `0.25` |
 
 NeuTTS:
 
@@ -168,9 +183,6 @@ NeuTTS:
 | `TINYTALK_TEMPERATURE` | `services.tinytalk.temperature` |
 | `TINYTALK_REPEAT_PENALTY` | `services.tinytalk.repeatPenalty` |
 | `TINYTALK_REPEAT_PENALTY_REROLL_STEP` | `services.tinytalk.repeatPenaltyRerollStep` |
-| `TINYTALK_MAX_RETRIES` | `services.tinytalk.maxRetries` |
-| `TINYTALK_WER_ENDPOINT` | `services.tinytalk.werEndpoint` |
-| `TINYTALK_WER_THRESHOLD` | `services.tinytalk.werThreshold` |
 | `TINYTALK_WATERMARK` | `services.tinytalk.watermark` |
 
 TinyTAuK:
