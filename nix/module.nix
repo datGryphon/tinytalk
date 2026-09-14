@@ -24,7 +24,7 @@ let
   ];
 
   tinytaukRuntimePackages = commonRuntimePackages ++ [
-    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/heads/fix/v0.1.1.tar.gz"
+    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/706f51d2dd8063f2b314bf8367c2839e73e7f3a9.tar.gz"
   ];
 
   runtimePackages =
