@@ -32,6 +32,11 @@ Backend-specific controls:
   description. `speed` scales TinyTalk's target-duration estimate; `1.0` is the
   configured baseline, with the accepted range `0.25` to `4.0`.
 
+Both backends use the same speech-quality evaluator. When `werEndpoint` is set,
+TinyTalk transcribes candidate audio through an OpenAI-compatible transcription
+endpoint and scores WER/CER before accepting or rerolling a chunk. With no
+endpoint configured, the legacy local confidence heuristic is used instead.
+
 Response headers include `X-TinyTalk-Backend`, `X-TinyTalk-Model`,
 `X-TinyTalk-Chunks`, `X-TinyTalk-Chunk-Chars`, and `X-TinyTalk-Format`.
 
@@ -60,16 +65,21 @@ services.tinytalk = {
 };
 ```
 
-A service instance runs one backend. This is intentional: TinyTAuK v0.1.0 uses
-Python 3.13 / Torch 2.7.1, while current NeuTTS uses a newer Torch/Transformers
-stack. The NixOS module selects the matching Python/runtime package set instead
-of trying to co-install incompatible ML environments.
+A service instance runs one backend. This is intentional: TinyTAuK uses Python
+3.13 / Torch 2.7.1, while current NeuTTS uses a newer Torch/Transformers stack.
+The NixOS module selects the matching Python/runtime package set instead of
+trying to co-install incompatible ML environments.
 
 Key options:
 
 | Option | Default | Notes |
 | --- | --- | --- |
 | `backend` | `neutts` | `neutts` or `tinytauk` |
+| `maxCharsPerChunk` | `180` | Max chars per synthesis call |
+| `interChunkSilenceMs` | `60` | Silence between chunks |
+| `maxRetries` | `2` | Quality-gated retries per chunk |
+| `werEndpoint` | empty | OpenAI-compatible transcription base URL |
+| `werThreshold` | `0.25` | Shared WER/CER acceptance threshold |
 | `model` | `neuphonic/neutts-nano-q4-gguf` | NeuTTS backbone |
 | `codec` | `neuphonic/neucodec-onnx-decoder-int8` | NeuTTS codec |
 | `backboneDevice` | `cpu` | NeuTTS `cpu` or `gpu` |
@@ -78,8 +88,6 @@ Key options:
 | `tinytaukModel` | `tencent/AuK-Flash` | TinyTAuK model repository |
 | `tinytaukQwenModel` | `Qwen/Qwen2.5-Omni-3B` | TinyTAuK conditioner |
 | `tinytaukCharsPerSecond` | `14.0` | TinyTAuK duration estimate |
-| `maxCharsPerChunk` | `180` | Max chars per synthesis call |
-| `interChunkSilenceMs` | `60` | Silence between chunks |
 
 NeuTTS reference files are required only for the NeuTTS backend. The module does
 not create them. Generate `ref_codes.pt` from a WAV with
@@ -122,6 +130,9 @@ Real NeuTTS integration tests:
 ```bash
 TINYTALK_RUN_INTEGRATION=1 pytest tests/integration/test_real_speech.py
 ```
+
+To additionally verify the live shared WER/CER path, set
+`TINYTALK_WER_ENDPOINT` for that run.
 
 Real TinyTAuK smoke test (downloads models on first run and may compile for
 several minutes):
