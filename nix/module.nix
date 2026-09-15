@@ -3,7 +3,7 @@
 
 let
   cfg = config.services.tinytalk;
-  python = if cfg.backend == "tinytauk" then pkgs.python313 else pkgs.python312;
+  python = pkgs.python313;
   pythonTarget = "/var/lib/tinytalk/python";
 
   commonRuntimePackages = [
@@ -27,16 +27,23 @@ let
     "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.1.tar.gz"
   ];
 
+  omnivoiceRuntimePackages = commonRuntimePackages ++ [
+    "torch==2.8.0+cpu"
+    "torchaudio==2.8.0+cpu"
+    "transformers>=5.3,<6"
+    "omnivoice==0.2.1"
+  ];
+
   runtimePackages =
-    if cfg.backend == "tinytauk"
-    then tinytaukRuntimePackages
+    if cfg.backend == "tinytauk" then tinytaukRuntimePackages
+    else if cfg.backend == "omnivoice" then omnivoiceRuntimePackages
     else neuttsRuntimePackages;
 
   commonOptions = {
     enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
 
     backend = lib.mkOption {
-      type = lib.types.enum [ "neutts" "tinytauk" ];
+      type = lib.types.enum [ "neutts" "tinytauk" "omnivoice" ];
       default = "neutts";
       description = "Synthesis backend for this service instance.";
     };
@@ -162,17 +169,49 @@ let
     };
   };
 
+  omnivoiceOptions = {
+    omnivoiceModel = lib.mkOption {
+      type = lib.types.str;
+      default = "k2-fsa/OmniVoice";
+      description = "OmniVoice model repository or local checkpoint path.";
+    };
+
+    omnivoiceDevice = lib.mkOption {
+      type = lib.types.str;
+      default = "cpu";
+      description = "Device map passed to OmniVoice.from_pretrained.";
+    };
+
+    omnivoiceLanguage = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Optional OmniVoice language name or code. Empty enables automatic language handling.";
+    };
+
+    omnivoiceRefAudio = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Optional reference WAV for OmniVoice voice cloning.";
+    };
+
+    omnivoiceRefText = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Transcript file paired with omnivoiceRefAudio.";
+    };
+  };
+
   runtimeOptions = {
     memoryHigh = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "systemd MemoryHigh. Null selects the backend default (5 GB NeuTTS, 17 GB TinyTAuK).";
+      description = "systemd MemoryHigh. Null selects the backend default.";
     };
 
     memoryMax = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "systemd MemoryMax. Null selects the backend default (6 GB NeuTTS, 20 GB TinyTAuK).";
+      description = "systemd MemoryMax. Null selects the backend default.";
     };
 
     runtimeIndexUrl = lib.mkOption {
@@ -226,13 +265,31 @@ let
     TINYTALK_TINYTAUK_CHARS_PER_SECOND = toString cfg.tinytaukCharsPerSecond;
   };
 
+  omnivoiceEnvironment = {
+    TINYTALK_OMNIVOICE_MODEL = cfg.omnivoiceModel;
+    TINYTALK_OMNIVOICE_DEVICE = cfg.omnivoiceDevice;
+    TINYTALK_OMNIVOICE_LANGUAGE = cfg.omnivoiceLanguage;
+  }
+  // lib.optionalAttrs (cfg.omnivoiceRefAudio != null) {
+    TINYTALK_OMNIVOICE_REF_AUDIO = toString cfg.omnivoiceRefAudio;
+  }
+  // lib.optionalAttrs (cfg.omnivoiceRefText != null) {
+    TINYTALK_OMNIVOICE_REF_TEXT = toString cfg.omnivoiceRefText;
+  };
+
   backendEnvironment =
-    if cfg.backend == "tinytauk"
-    then tinytaukEnvironment
+    if cfg.backend == "tinytauk" then tinytaukEnvironment
+    else if cfg.backend == "omnivoice" then omnivoiceEnvironment
     else neuttsEnvironment;
 
-  defaultMemoryHigh = if cfg.backend == "tinytauk" then "17G" else "5000M";
-  defaultMemoryMax = if cfg.backend == "tinytauk" then "20G" else "6000M";
+  defaultMemoryHigh =
+    if cfg.backend == "tinytauk" then "17G"
+    else if cfg.backend == "omnivoice" then "12G"
+    else "5000M";
+  defaultMemoryMax =
+    if cfg.backend == "tinytauk" then "20G"
+    else if cfg.backend == "omnivoice" then "16G"
+    else "6000M";
 
   prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
     builtins.replaceStrings
@@ -262,6 +319,7 @@ in
     // qualityOptions
     // neuttsOptions
     // tinytaukOptions
+    // omnivoiceOptions
     // runtimeOptions;
 
   config = lib.mkIf cfg.enable {
@@ -269,6 +327,12 @@ in
       {
         assertion = cfg.backend != "tinytauk" || cfg.tinytaukCharsPerSecond > 0.0;
         message = "services.tinytalk.tinytaukCharsPerSecond must be positive";
+      }
+      {
+        assertion =
+          cfg.backend != "omnivoice"
+          || ((cfg.omnivoiceRefAudio == null) == (cfg.omnivoiceRefText == null));
+        message = "services.tinytalk.omnivoiceRefAudio and omnivoiceRefText must be configured together";
       }
     ];
 
@@ -303,7 +367,10 @@ in
         PrivateTmp = true;
         Restart = "on-failure";
         RestartSec = 3;
-        TimeoutStartSec = if cfg.backend == "tinytauk" then "30min" else "15min";
+        TimeoutStartSec =
+          if cfg.backend == "tinytauk" then "30min"
+          else if cfg.backend == "omnivoice" then "20min"
+          else "15min";
         MemoryHigh = if cfg.memoryHigh != null then cfg.memoryHigh else defaultMemoryHigh;
         MemoryMax = if cfg.memoryMax != null then cfg.memoryMax else defaultMemoryMax;
         StateDirectory = "tinytalk";
