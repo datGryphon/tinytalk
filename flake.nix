@@ -14,7 +14,13 @@
           shellHook = ''
             export LD_LIBRARY_PATH="${libPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             export TINYTALK_BACKEND="${backend}"
-            if [ ! -d "${venv}" ]; then
+            expected_python="$(${python}/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+            current_python=""
+            if [ -x "${venv}/bin/python" ]; then
+              current_python="$("${venv}/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+            fi
+            if [ "$current_python" != "$expected_python" ]; then
+              rm -rf "${venv}"
               uv venv "${venv}" --python ${python}/bin/python --python-preference only-system
             fi
             uv pip install \
