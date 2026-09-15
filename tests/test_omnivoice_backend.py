@@ -65,7 +65,11 @@ def bad_quality() -> QualityResult:
 
 def make_engine(monkeypatch, settings: Settings) -> omnivoice_backend.OmniVoiceEngine:
     monkeypatch.setattr(omnivoice_backend, "OmniVoice", FakeOmniVoice)
-    monkeypatch.setattr(omnivoice_backend, "evaluate_audio", lambda *args, **kwargs: good_quality())
+    monkeypatch.setattr(
+        omnivoice_backend,
+        "evaluate_audio",
+        lambda *args, **kwargs: good_quality(),
+    )
     engine = omnivoice_backend.OmniVoiceEngine(settings)
     engine.load()
     return engine
@@ -182,3 +186,25 @@ def test_quality_retry_adds_sampling_temperature(monkeypatch):
     assert timing["status"] == "accepted"
     assert timing["attempts_detail"][0]["status"] is None
     assert timing["attempts_detail"][1]["status"] == "accepted"
+
+
+def test_quality_exhaustion_returns_best_candidate_as_fallback(monkeypatch):
+    monkeypatch.setattr(omnivoice_backend, "OmniVoice", FakeOmniVoice)
+    monkeypatch.setattr(
+        omnivoice_backend,
+        "evaluate_audio",
+        lambda *args, **kwargs: bad_quality(),
+    )
+    engine = omnivoice_backend.OmniVoiceEngine(
+        Settings(backend="omnivoice", max_retries=1)
+    )
+    engine.load()
+
+    result = engine.synthesize("hello world")
+
+    timing = result.timing.chunks[0]
+    assert timing["attempts"] == 2
+    assert timing["status"] == "fallback"
+    assert sum(
+        detail["status"] == "fallback" for detail in timing["attempts_detail"]
+    ) == 1
