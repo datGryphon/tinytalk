@@ -25,6 +25,7 @@ def _assert_live_quality(chunk: dict, *, threshold: float) -> None:
     assert chunk["prompt_leak"] is False, chunk
     assert chunk["wer"] <= threshold, chunk
     assert chunk["cer"] <= threshold, chunk
+    assert chunk["status"] == "accepted", chunk
 
 
 def _run_case(
@@ -60,8 +61,9 @@ def _run_case(
         assert len(details) == 3, details
         seeds = [detail["seed"] for detail in details]
         assert len(set(seeds)) == 3, details
-        selected = [detail for detail in details if detail["accepted"]]
+        selected = [detail for detail in details if detail["status"] is not None]
         assert len(selected) == 1, details
+        assert selected[0]["status"] == "fallback", details
     else:
         _assert_live_quality(chunk, threshold=threshold)
 
@@ -75,6 +77,7 @@ def _run_case(
         "instructions": instructions,
         "chunks": len(result.chunks),
         "attempts": len(details),
+        "status": chunk["status"],
         "selected_seed": chunk["seed"],
         "selected_gen_seconds": chunk["gen_seconds"],
         "wer": chunk["wer"],
