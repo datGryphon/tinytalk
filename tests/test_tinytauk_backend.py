@@ -55,6 +55,8 @@ def _quality(
     deletions: int = 0,
     substitutions: int = 0,
     prompt_leak: bool = False,
+    source: str = "whisper",
+    fallback: bool = False,
 ) -> QualityResult:
     return QualityResult(
         wer=wer,
@@ -63,8 +65,8 @@ def _quality(
         deletions=deletions,
         insertions=insertions,
         prompt_leak=prompt_leak,
-        source="whisper",
-        fallback=False,
+        source=source,
+        fallback=fallback,
     )
 
 
@@ -180,8 +182,9 @@ def test_prompt_leak_rerolls_with_new_seed_and_same_horizon(monkeypatch):
     chunk = result.timing.chunks[0]
     assert chunk["attempts"] == 2
     assert chunk["attempts_detail"][0]["prompt_leak"] is True
-    assert chunk["attempts_detail"][0]["accepted"] is False
-    assert chunk["attempts_detail"][1]["accepted"] is True
+    assert chunk["attempts_detail"][0]["status"] is None
+    assert chunk["attempts_detail"][1]["status"] == "accepted"
+    assert chunk["status"] == "accepted"
     assert chunk["seed"] == 101
 
 
@@ -231,6 +234,25 @@ def test_retry_seed_ranges_do_not_collide_between_chunks(monkeypatch):
     assert seeds[:6] == [100, 101, 102, 103, 104, 105]
 
 
+def test_accepted_retry_wins_over_lower_ranked_failed_candidate(monkeypatch):
+    engine = _engine(max_retries=1, wer_endpoint="http://asr.local")
+    scores = iter(
+        [
+            _quality(wer=0.3, cer=0.2, substitutions=1),
+            _quality(wer=0.1, cer=None, source="confidence", fallback=True),
+        ]
+    )
+    monkeypatch.setattr(backend_module, "evaluate_audio", lambda *args, **kwargs: next(scores))
+
+    result = engine.synthesize("x" * 28)
+
+    chunk = result.timing.chunks[0]
+    assert chunk["status"] == "accepted"
+    assert chunk["seed"] == 101
+    assert chunk["wer"] == pytest.approx(0.1)
+    assert chunk["attempts_detail"][1]["status"] == "accepted"
+
+
 def test_exhausted_retries_keep_best_non_leaking_candidate(monkeypatch):
     engine = _engine(max_retries=2, wer_endpoint="http://asr.local")
     scores = iter(
@@ -245,8 +267,10 @@ def test_exhausted_retries_keep_best_non_leaking_candidate(monkeypatch):
     result = engine.synthesize("x" * 28)
 
     chunk = result.timing.chunks[0]
-    accepted = [detail for detail in chunk["attempts_detail"] if detail["accepted"]]
-    assert len(accepted) == 1
-    assert accepted[0]["attempt"] == 2
+    selected = [detail for detail in chunk["attempts_detail"] if detail["status"] is not None]
+    assert len(selected) == 1
+    assert selected[0]["attempt"] == 2
+    assert selected[0]["status"] == "fallback"
+    assert chunk["status"] == "fallback"
     assert chunk["prompt_leak"] is False
     assert chunk["wer"] == pytest.approx(0.3)
