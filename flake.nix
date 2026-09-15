@@ -32,7 +32,7 @@
 
       devShells.${system} = {
         default = mkDevShell {
-          python = pkgs.python312;
+          python = pkgs.python313;
           venv = ".venv";
           extras = "neutts,test";
           backend = "neutts";
@@ -46,6 +46,13 @@
           # TinyTAuK's released CPU profile compiles the VAE decoder lazily
           # with TorchInductor, which invokes a native compiler on first use.
           extraPackages = [ pkgs.gcc pkgs.pkg-config ];
+        };
+
+        omnivoice = mkDevShell {
+          python = pkgs.python313;
+          venv = ".venv-omnivoice";
+          extras = "omnivoice,test";
+          backend = "omnivoice";
         };
       };
     };
