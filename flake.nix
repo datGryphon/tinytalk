@@ -8,7 +8,7 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       libPath = pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
-      mkDevShell = { python, venv, extras, backend, extraPackages ? [ ] }:
+      mkDevShell = { python, venv, extras, backend, extraPackages ? [ ], override ? null }:
         pkgs.mkShell {
           packages = [ python pkgs.uv pkgs.ffmpeg-headless ] ++ extraPackages;
           shellHook = ''
@@ -28,6 +28,7 @@
               --index-url https://pypi.org/simple \
               --extra-index-url https://download.pytorch.org/whl/cpu \
               --index-strategy unsafe-best-match \
+              ${pkgs.lib.optionalString (override != null) "--override ${override}"} \
               -e '.[${extras}]'
             source "${venv}/bin/activate"
           '';
@@ -42,6 +43,14 @@
           venv = ".venv";
           extras = "neutts,test";
           backend = "neutts";
+        };
+
+        neutts-transformers517 = mkDevShell {
+          python = pkgs.python313;
+          venv = ".venv-neutts-transformers517";
+          extras = "neutts,test";
+          backend = "neutts";
+          override = ./nix/overrides/transformers-5.17.txt;
         };
 
         tinytauk = mkDevShell {
