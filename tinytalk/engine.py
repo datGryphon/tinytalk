@@ -48,7 +48,11 @@ _BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
 
 
 def _backend_class(backend: Backend):
-    module_name, class_name = _BACKEND_CLASSES[backend]
+    try:
+        module_name, class_name = _BACKEND_CLASSES[backend]
+    except KeyError:
+        raise ValueError(f"unsupported synthesis backend: {backend!r}") from None
+
     try:
         module = import_module(module_name)
     except ModuleNotFoundError as exc:
