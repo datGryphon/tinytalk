@@ -32,8 +32,27 @@ def test_word_error_rate_normalizes_case_and_punctuation():
     assert score.rate == pytest.approx(0.0)
 
 
+@pytest.mark.parametrize(
+    ("reference", "hypothesis"),
+    [
+        ("don't stop", "dont stop"),
+        ("don’t stop", "dont stop"),
+        ("weʼre ready", "were ready"),
+        ("it＇s done", "its done"),
+    ],
+)
+def test_word_error_rate_normalizes_spoken_word_apostrophes(reference, hypothesis):
+    score = word_error_rate(reference, hypothesis)
+    assert score.rate == pytest.approx(0.0)
+
+
 def test_char_error_rate_ignores_spacing_after_normalization():
     score = char_error_rate("hello world", "helloworld")
+    assert score.rate == pytest.approx(0.0)
+
+
+def test_char_error_rate_normalizes_apostrophe_variants():
+    score = char_error_rate("don’t", "dont")
     assert score.rate == pytest.approx(0.0)
 
 
