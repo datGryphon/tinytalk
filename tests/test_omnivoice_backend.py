@@ -102,10 +102,13 @@ def test_auto_voice_passes_speed_and_language(monkeypatch):
 def test_instructions_select_voice_design(monkeypatch):
     engine = make_engine(monkeypatch, Settings(backend="omnivoice"))
 
-    result = engine.synthesize("hello world", instructions="calm British narrator")
+    result = engine.synthesize(
+        "hello world",
+        instructions="female, young adult, british accent",
+    )
 
     call = FakeOmniVoice.model.generate_calls[-1]
-    assert call["instruct"] == "calm British narrator"
+    assert call["instruct"] == "female, young adult, british accent"
     assert call["voice_clone_prompt"] is None
     assert result.timing.chunks[0]["mode"] == "design"
 
@@ -145,11 +148,23 @@ def test_design_instruction_overrides_configured_clone(monkeypatch, tmp_path: Pa
     )
     engine = make_engine(monkeypatch, settings)
 
-    engine.synthesize("hello world", instructions="older female radio host")
+    engine.synthesize("hello world", instructions="female, elderly, low pitch")
 
     call = FakeOmniVoice.model.generate_calls[-1]
-    assert call["instruct"] == "older female radio host"
+    assert call["instruct"] == "female, elderly, low pitch"
     assert call["voice_clone_prompt"] is None
+
+
+def test_upstream_instruction_validation_errors_are_not_swallowed(monkeypatch):
+    engine = make_engine(monkeypatch, Settings(backend="omnivoice"))
+
+    def invalid_generate(**_kwargs):
+        raise ValueError("Unsupported instruct items")
+
+    FakeOmniVoice.model.generate = invalid_generate
+
+    with pytest.raises(ValueError, match="Unsupported instruct items"):
+        engine.synthesize("hello world", instructions="calm technical narrator")
 
 
 def test_reference_audio_and_text_must_be_paired(monkeypatch, tmp_path: Path):
