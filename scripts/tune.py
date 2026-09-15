@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproducible WER parameter-sweep harness.
+"""Reproducible NeuTTS WER parameter-sweep harness.
 
 Synthesizes tests/corpus/*.txt probes, scores with tinytalk.wer, writes structured JSON.
 
@@ -14,15 +14,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import itertools
+import json
 import textwrap
 from dataclasses import replace
 from pathlib import Path
 
 from tinytalk.audio import to_wav_bytes
+from tinytalk.backends.neutts import NeuTTSEngine
 from tinytalk.config import load_settings
-from tinytalk.engine import TinyTalkEngine
 from tinytalk.wer import transcribe_chunk, word_error_rate
 
 CORPUS = Path(__file__).parent.parent / "tests" / "corpus"
@@ -33,7 +33,7 @@ PROBES = {p.stem: " ".join(p.read_text().split()) for p in sorted(CORPUS.glob("*
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="WER parameter-sweep harness for tinytalk TTS tuning",
+        description="WER parameter-sweep harness for the TinyTalk NeuTTS backend",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
           Examples:
@@ -55,7 +55,6 @@ def main() -> None:
     parser.add_argument("--out-json", type=Path, help="write JSON results to this path")
     args = parser.parse_args()
 
-    # Parse CLI args into typed sweep values
     sweep_fields: list[tuple[str, str, type]] = [
         ("temperature", args.temperature, float),
         ("repeat_penalty", args.repeat_penalty, float),
@@ -68,17 +67,18 @@ def main() -> None:
     for field_name, raw, typ in sweep_fields:
         if raw is not None:
             field_values[field_name] = [typ(v) for v in raw.split(",")]
-        # omitted fields → single-element list from base settings
 
-    # Override base settings with --ref-* overrides
     overrides = {
+        "backend": "neutts",
         "ref_codes": args.ref_codes,
         "ref_text": args.ref_text,
         "wer_endpoint": args.wer_endpoint,
     }
-    base_settings = replace(load_settings(), **{k: v for k, v in overrides.items() if v is not None})
+    base_settings = replace(
+        load_settings(),
+        **{k: v for k, v in overrides.items() if v is not None},
+    )
 
-    # Build value lists: sweep flags provide explicit lists, omitted flags use [base_value]
     for field_name, raw, typ in sweep_fields:
         if field_name not in field_values:
             field_values[field_name] = [getattr(base_settings, field_name)]
@@ -86,8 +86,7 @@ def main() -> None:
     product_args = [field_values[fn] for fn, _, _ in sweep_fields]
     combos = list(itertools.product(*product_args))
 
-    # Load engine ONCE
-    engine = TinyTalkEngine(base_settings)
+    engine = NeuTTSEngine(base_settings)
     engine.load()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -96,19 +95,15 @@ def main() -> None:
     best_wer = 1.0
 
     for combo in combos:
-        # Re-tune by replacing settings fields on the existing engine
         combo_dict = dict(zip([fn for fn, _, _ in sweep_fields], combo))
         engine.settings = replace(engine.settings, **combo_dict)
 
-        # Print human line
         human_parts = [f"{k}={v}" for k, v in combo_dict.items()]
         print(f"{' | '.join(human_parts)}")
 
-        # Each combo writes into its own subdir so audio is not overwritten.
         combo_dir = args.out_dir / "_".join(f"{k}{v}" for k, v in combo_dict.items())
         combo_dir.mkdir(parents=True, exist_ok=True)
 
-        # Synthesize all probes
         per_probe_wer: dict[str, float] = {}
         wers: list[float] = []
 
@@ -135,13 +130,11 @@ def main() -> None:
             best_wer = mean_wer
             best_result = result_entry
 
-    # Print best
     if best_result is not None:
         params = best_result["params"]
         param_str = ", ".join(f"{k}={v}" for k, v in params.items())
         print(f"\nbest: {param_str} mean_wer={best_result['mean_wer']}")
 
-    # Write JSON (sorted by mean_wer ascending)
     if args.out_json is not None:
         results.sort(key=lambda r: r["mean_wer"])
         with open(args.out_json, "w") as f:

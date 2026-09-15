@@ -1,15 +1,23 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, cast
+
+
+Backend = Literal["neutts", "tinytauk"]
 
 
 @dataclass(frozen=True)
 class Settings:
+    backend: Backend = "neutts"
     model: str = "neuphonic/neutts-nano-q4-gguf"
     codec: str = "neuphonic/neucodec-onnx-decoder-int8"
     backbone_device: str = "cpu"
     ref_codes: Path = Path("/var/lib/tinytalk/ref_codes.pt")
     ref_text: Path = Path("/var/lib/tinytalk/ref_text.txt")
+    tinytauk_model: str = "tencent/AuK-Flash"
+    tinytauk_qwen_model: str = "Qwen/Qwen2.5-Omni-3B"
+    tinytauk_chars_per_second: float = 14.0
     host: str = "0.0.0.0"
     port: int = 9002
     max_chars_per_chunk: int = 180
@@ -25,11 +33,19 @@ class Settings:
 
 def load_settings() -> Settings:
     return Settings(
+        backend=_backend_env("TINYTALK_BACKEND", Settings.backend),
         model=os.getenv("TINYTALK_MODEL", Settings.model),
         codec=os.getenv("TINYTALK_CODEC", Settings.codec),
         backbone_device=os.getenv("TINYTALK_BACKBONE_DEVICE", Settings.backbone_device),
         ref_codes=Path(os.getenv("TINYTALK_REF_CODES", str(Settings.ref_codes))),
         ref_text=Path(os.getenv("TINYTALK_REF_TEXT", str(Settings.ref_text))),
+        tinytauk_model=os.getenv("TINYTALK_TINYTAUK_MODEL", Settings.tinytauk_model),
+        tinytauk_qwen_model=os.getenv(
+            "TINYTALK_TINYTAUK_QWEN_MODEL", Settings.tinytauk_qwen_model
+        ),
+        tinytauk_chars_per_second=_float_env(
+            "TINYTALK_TINYTAUK_CHARS_PER_SECOND", Settings.tinytauk_chars_per_second
+        ),
         host=os.getenv("TINYTALK_HOST", Settings.host),
         port=_int_env("TINYTALK_PORT", Settings.port),
         max_chars_per_chunk=_int_env(
@@ -48,6 +64,15 @@ def load_settings() -> Settings:
         wer_threshold=_float_env("TINYTALK_WER_THRESHOLD", Settings.wer_threshold),
         watermark=_bool_env("TINYTALK_WATERMARK", Settings.watermark),
     )
+
+
+def _backend_env(name: str, default: Backend) -> Backend:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    if raw not in ("neutts", "tinytauk"):
+        raise ValueError(f"{name} must be 'neutts' or 'tinytauk', got {raw!r}")
+    return cast(Backend, raw)
 
 
 def _int_env(name: str, default: int) -> int:

@@ -4,10 +4,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+pytest.importorskip("neutts")
+
 from tinytalk import server
+from tinytalk.backends.neutts import NeuTTSEngine
 from tinytalk.chunking import split_text
 from tinytalk.config import Settings
-from tinytalk.engine import TinyTalkEngine
 
 pytestmark = pytest.mark.skipif(
     os.getenv("TINYTALK_RUN_INTEGRATION") != "1",
@@ -30,8 +32,14 @@ def test_sentencizer_edge_cases_chunk_cleanly():
 
 def test_real_speech_outputs_wavs(monkeypatch):
     voices = Path(__file__).parent.parent / "voices"
-    settings = Settings(ref_codes=voices / "jo.pt", ref_text=voices / "jo.txt")
-    monkeypatch.setattr(server, "engine", TinyTalkEngine(settings))
+    wer_endpoint = os.getenv("TINYTALK_WER_ENDPOINT", "").rstrip("/")
+    settings = Settings(
+        ref_codes=voices / "jo.pt",
+        ref_text=voices / "jo.txt",
+        wer_endpoint=wer_endpoint,
+    )
+    engine = NeuTTSEngine(settings)
+    monkeypatch.setattr(server, "engine", engine)
 
     artifact_dir = Path("test_artifacts")
     artifact_dir.mkdir(exist_ok=True)
@@ -49,3 +57,11 @@ def test_real_speech_outputs_wavs(monkeypatch):
             out = artifact_dir / f"{name}.wav"
             out.write_bytes(response.content)
             assert out.stat().st_size > 44
+
+        if wer_endpoint:
+            quality_result = engine.synthesize("The system is operating normally.")
+            assert quality_result.timing is not None
+            for chunk in quality_result.timing.chunks:
+                assert chunk["wer_source"] == "whisper", chunk
+                assert chunk["wer_fallback"] is False, chunk
+                assert chunk["cer"] is not None, chunk
