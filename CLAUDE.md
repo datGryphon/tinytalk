@@ -11,8 +11,8 @@ surface. Synthesis is provided by one backend per service instance:
 - `neutts`: reference-voice NeuTTS/GGUF path;
 - `tinytauk`: instruction-controlled AuK-Flash through the separately maintained
   TinyTAuK runtime;
-- `omnivoice`: multilingual auto voice, natural-language voice design, and
-  optional reference-audio cloning through k2-fsa/OmniVoice.
+- `omnivoice`: multilingual auto voice, constrained attribute-based voice design,
+  and optional reference-audio cloning through k2-fsa/OmniVoice.
 
 The main API is `POST /v1/audio/speech`. The repository exports a NixOS module
 as `nixosModules.default`.
@@ -82,6 +82,10 @@ feature flags unrelated to real backend differences.
   finishes before `/health` reports ready.
 - OmniVoice maps request `instructions` directly to upstream `instruct` and
   request `speed` directly to upstream `speed`.
+- OmniVoice `instructions` are comma-separated upstream attribute tags, not
+  freeform prose. Keep examples within the fixed gender, age, pitch, whisper,
+  accent, and Chinese-dialect vocabularies. Unsupported or mutually exclusive
+  values should remain visible as upstream validation errors.
 - OmniVoice mode selection is local policy: request instructions select voice
   design; otherwise a configured cached clone prompt selects cloning; otherwise
   the backend uses auto voice.
@@ -166,9 +170,17 @@ The adapter loads one long-lived upstream `OmniVoice` model. CPU loads use
 float32; non-CPU devices use float16 unless qualification shows a device-specific
 requirement. A configured reference audio/transcript pair is encoded once into a
 reusable voice-clone prompt. Request instructions override that configured clone
-for the request and select upstream voice-design mode. With neither, generation
-uses upstream auto voice. Shared WER/CER evaluates every candidate, while retries
-raise OmniVoice `class_temperature` from the greedy first-pass default.
+for the request and select upstream voice-design mode. Instructions must use
+upstream's fixed comma-separated attribute vocabulary; they are not semantic
+natural-language prompts. With neither instructions nor a configured clone,
+generation uses upstream auto voice. Shared WER/CER evaluates every candidate,
+while retries raise OmniVoice `class_temperature` from the greedy first-pass
+default.
+
+The qualified CPU stack is Python 3.13.13, OmniVoice 0.2.1, Torch 2.8.0+cpu,
+and Transformers 5.17.0. One manual sweep measured approximately 2.6-2.8 GiB
+peak process RSS for auto/design and approximately 5.1 GiB for cloned generation.
+Treat those figures as host-specific capacity guidance rather than guarantees.
 
 Keep pronunciation markup, LoRA, batch inference, request-level reference-audio
 uploads, and accelerator-specific optimization out of the generic TinyTalk API
