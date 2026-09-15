@@ -1,7 +1,7 @@
 [project]
 name = "tinytalk"
 description = "OpenAI-compatible TTS server for modest machines"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 dynamic = ["version"]
 authors = [{ email = "calebwastler@gmail.com" }]
 dependencies = [
