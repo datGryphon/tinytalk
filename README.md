@@ -9,8 +9,8 @@ Supported backends:
 - **NeuTTS** — reference-voice/GGUF synthesis;
 - **TinyTAuK** — instruction-controlled AuK-Flash through
   [`datGryphon/tinytauk`](https://github.com/datGryphon/tinytauk);
-- **OmniVoice** — multilingual auto voice, natural-language voice design, and
-  optional reference-audio voice cloning through `k2-fsa/OmniVoice`.
+- **OmniVoice** — multilingual auto voice, constrained attribute-based voice
+  design, and optional reference-audio voice cloning through `k2-fsa/OmniVoice`.
 
 The flake exports `nixosModules.default`.
 
@@ -59,6 +59,24 @@ Backend-specific controls:
 - OmniVoice maps `instructions` directly to upstream voice-design `instruct` and
   maps `speed` directly to OmniVoice. With no instructions it uses the configured
   clone prompt when present; otherwise it uses OmniVoice auto-voice mode.
+
+OmniVoice voice design is not a freeform natural-language interface. The request
+`instructions` value must contain supported comma-separated attributes, for
+example:
+
+```text
+male, middle-aged, moderate pitch
+female, young adult, british accent
+male, elderly, low pitch, whisper
+```
+
+The supported English attribute categories are gender (`male`, `female`), age
+(`child`, `teenager`, `young adult`, `middle-aged`, `elderly`), pitch (`very low
+pitch`, `low pitch`, `moderate pitch`, `high pitch`, `very high pitch`),
+`whisper`, and a fixed set of upstream English accent tags. OmniVoice also
+supports its fixed Chinese dialect tags. Unsupported prose or mutually exclusive
+attributes raise an upstream validation error rather than being interpreted as a
+semantic prompt.
 
 The accepted request `speed` range is `0.25` to `4.0`.
 
@@ -158,6 +176,14 @@ warmup generation before `/health` reports ready.
 OmniVoice downloads its checkpoint on first startup. CPU is the conservative
 default for TinyTalk; other upstream-supported device strings can be supplied via
 `omnivoiceDevice` and should be qualified on the target host before deployment.
+
+A September 2026 qualification run on one CPU host used Python 3.13.13,
+OmniVoice 0.2.1, Torch 2.8.0+cpu, and Transformers 5.17.0. Auto/design generation
+used approximately 2.6-2.8 GiB peak process RSS and took roughly 35-53 seconds
+for short samples. Cloned generation used approximately 5.1 GiB peak process RSS
+and took roughly 100 seconds for similar short samples. Clone-prompt construction
+itself took about two seconds. These figures describe that host and corpus only;
+they are capacity-planning reference points, not runtime guarantees.
 
 ### NeuTTS CPU vs CUDA
 
