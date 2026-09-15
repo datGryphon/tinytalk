@@ -36,7 +36,7 @@ def test_omnivoice_voice_design_smoke(monkeypatch):
             "/v1/audio/speech",
             json={
                 "input": "TinyTalk is now speaking through OmniVoice.",
-                "instructions": "A calm, natural technical narrator",
+                "instructions": "male, middle-aged, moderate pitch",
                 "speed": 1.0,
                 "response_format": "wav",
             },
