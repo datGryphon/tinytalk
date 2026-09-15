@@ -4,12 +4,26 @@ set -euo pipefail
 PYTHON_TARGET="${TINYTALK_PYTHON_TARGET:?}"
 MARKER="$PYTHON_TARGET/.spec"
 INDEX_STRATEGY="unsafe-best-match"
-SPEC="v3|${TINYTALK_BACKEND:-neutts}|$INDEX_STRATEGY|${TINYTALK_PIP_INDEX_URL:-}|${TINYTALK_PIP_EXTRA_INDEX_URLS:-}|${TINYTALK_RUNTIME_REQUIREMENTS:?}"
+SPEC="v4|@python@|${TINYTALK_BACKEND:-neutts}|$INDEX_STRATEGY|${TINYTALK_PIP_INDEX_URL:-}|${TINYTALK_PIP_EXTRA_INDEX_URLS:-}|${TINYTALK_RUNTIME_REQUIREMENTS:?}"
 
 if [ "${TINYTALK_BACKEND:-neutts}" = "neutts" ]; then
   for path in "${TINYTALK_REF_CODES:?}" "${TINYTALK_REF_TEXT:?}"; do
     [ -r "$path" ] || { echo "tinytalk: unreadable: $path" >&2; exit 1; }
   done
+fi
+
+if [ "${TINYTALK_BACKEND:-neutts}" = "omnivoice" ]; then
+  ref_audio="${TINYTALK_OMNIVOICE_REF_AUDIO:-}"
+  ref_text="${TINYTALK_OMNIVOICE_REF_TEXT:-}"
+  if [ -n "$ref_audio" ] || [ -n "$ref_text" ]; then
+    [ -n "$ref_audio" ] && [ -n "$ref_text" ] || {
+      echo "tinytalk: OmniVoice reference audio and text must be configured together" >&2
+      exit 1
+    }
+    for path in "$ref_audio" "$ref_text"; do
+      [ -r "$path" ] || { echo "tinytalk: unreadable: $path" >&2; exit 1; }
+    done
+  fi
 fi
 
 if [ "$(cat "$MARKER" 2>/dev/null)" = "$SPEC" ]; then
