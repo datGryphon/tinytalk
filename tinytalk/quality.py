@@ -56,15 +56,12 @@ def normalize_text(text: str) -> str:
     same word. Other punctuation remains a separator.
     """
     normalized = unicodedata.normalize("NFKC", text).casefold()
-    cleaned = "".join(
-        ""
-        if char in _APOSTROPHES
-        else char
-        if char.isalnum() or char.isspace()
-        else " "
-        for char in normalized
-    )
-    return " ".join(cleaned.split())
+    cleaned_chars: list[str] = []
+    for char in normalized:
+        if char in _APOSTROPHES:
+            continue
+        cleaned_chars.append(char if char.isalnum() or char.isspace() else " ")
+    return " ".join("".join(cleaned_chars).split())
 
 
 def _edit_score(
