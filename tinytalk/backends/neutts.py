@@ -208,18 +208,17 @@ class NeuTTSEngine:
                 t_wer_check = time.perf_counter() - quality_start
                 wer_fallbacks += int(quality.fallback)
 
+                accept_early = quality_is_acceptable(
+                    quality,
+                    self.settings.wer_threshold,
+                )
                 rank = quality_rank(quality)
-                if best_rank is None or rank < best_rank:
+                if accept_early or best_rank is None or rank < best_rank:
                     best_rank = rank
                     best_quality = quality
                     best_audio = wav
                     best_attempt = attempt
                     accepted_repeat_penalty = rp
-
-                accept_early = quality_is_acceptable(
-                    quality,
-                    self.settings.wer_threshold,
-                )
             except ValueError:
                 pass
 
@@ -229,7 +228,7 @@ class NeuTTSEngine:
                 "t_dsp": t_dsp,
                 "t_wer_check": t_wer_check,
                 "repeat_penalty": rp,
-                "accepted": accept_early,
+                "status": None,
             }
             detail.update(self._quality_timing_fields(quality))
             attempt_details.append(detail)
@@ -242,12 +241,19 @@ class NeuTTSEngine:
                 f"All {num_attempts} attempts produced no speech tokens for chunk: {chunk_text!r}"
             )
 
+        selected_status = (
+            "accepted"
+            if quality_is_acceptable(best_quality, self.settings.wer_threshold)
+            else "fallback"
+        )
         for detail in attempt_details:
-            detail["accepted"] = detail["attempt"] == best_attempt
+            if detail["attempt"] == best_attempt:
+                detail["status"] = selected_status
 
         chunk_timing = {
             "index": index,
             "attempts": len(attempt_details),
+            "status": selected_status,
             "repeat_penalty": accepted_repeat_penalty,
             "attempts_detail": attempt_details,
         }
