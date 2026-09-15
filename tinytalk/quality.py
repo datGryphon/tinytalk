@@ -12,6 +12,8 @@ import numpy as np
 
 from .audio import chunk_confidence, to_wav_bytes
 
+_APOSTROPHES = frozenset({"'", "’", "ʼ", "＇"})
+
 
 @dataclass(frozen=True)
 class EditScore:
@@ -47,9 +49,21 @@ class QualityResult:
 
 
 def normalize_text(text: str) -> str:
-    """Normalize text for speech-intelligibility comparison."""
+    """Normalize text for speech-intelligibility comparison.
+
+    Apostrophes inside spoken words are removed rather than converted into token
+    boundaries so common ASR variants such as ``don't``/``dont`` score as the
+    same word. Other punctuation remains a separator.
+    """
     normalized = unicodedata.normalize("NFKC", text).casefold()
-    cleaned = "".join(char if char.isalnum() or char.isspace() else " " for char in normalized)
+    cleaned = "".join(
+        ""
+        if char in _APOSTROPHES
+        else char
+        if char.isalnum() or char.isspace()
+        else " "
+        for char in normalized
+    )
     return " ".join(cleaned.split())
 
 
