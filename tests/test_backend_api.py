@@ -59,14 +59,16 @@ def test_controlled_backend_receives_instructions_and_speed(monkeypatch):
     assert response.headers["X-TinyTalk-Model"] == "fake/controlled"
 
 
-def test_missing_backend_extra_has_actionable_error(monkeypatch):
+@pytest.mark.parametrize("backend", ["neutts", "tinytauk"])
+def test_missing_backend_extra_has_actionable_error(monkeypatch, backend):
     def missing_import(_module_name):
-        raise ModuleNotFoundError("No module named 'tinytauk'", name="tinytauk")
+        raise ModuleNotFoundError(f"No module named {backend!r}", name=backend)
 
     monkeypatch.setattr(engine_module, "import_module", missing_import)
 
-    with pytest.raises(RuntimeError, match=r"pip install 'tinytalk\[tinytauk\]'"):
-        create_engine(Settings(backend="tinytauk"))
+    expected = rf"pip install 'tinytalk\[{backend}\]'"
+    with pytest.raises(RuntimeError, match=expected):
+        create_engine(Settings(backend=backend))
 
 
 def test_legacy_tinytalk_engine_respects_backend_selection(monkeypatch):
