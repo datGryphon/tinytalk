@@ -135,7 +135,7 @@ class TestBestOfNByWer:
         engine.tts.infer = mock_infer
 
         def fake_wer(wav, text):
-            rms = float(np.sqrt(np.mean(wav.astype(np.float64)**2)))
+            rms = float(np.sqrt(np.mean(wav.astype(np.float64) ** 2)))
             if rms < 0.01:
                 return 0.8, "confidence", False  # bad (silent)
             return 0.1, "confidence", False  # good
@@ -144,7 +144,7 @@ class TestBestOfNByWer:
             result = engine.synthesize("hello world test")
 
         # The good audio won the WER comparison (0.1 < 0.8 < 0.8)
-        rms = float(np.sqrt(np.mean(result.audio.astype(np.float64)**2)))
+        rms = float(np.sqrt(np.mean(result.audio.astype(np.float64) ** 2)))
         assert rms > 0.01  # result is the good audio, not silent
 
 
@@ -216,7 +216,7 @@ class TestEarlyAcceptTiming:
         assert result.timing is not None
         chunk = result.timing.chunks[0]
         assert chunk["attempts"] == 1  # not 0 — the accepted attempt must be counted
-        accepted = [a for a in chunk["attempts_detail"] if a["accepted"]]
+        accepted = [a for a in chunk["attempts_detail"] if a["status"] == "accepted"]
         assert len(accepted) == 1
         assert accepted[0]["attempt"] == 0
         assert accepted[0]["wer"] == 0.1
@@ -226,6 +226,7 @@ class TestEarlyAcceptTiming:
         assert accepted[0]["t_infer"] >= 0.0
         assert accepted[0]["t_dsp"] > 0.0  # real DSP work was measured
         assert accepted[0]["t_wer_check"] >= 0.0
+        assert chunk["status"] == "accepted"
         assert chunk["duration"] > 0.0
 
     def test_reroll_then_accept_records_both_attempts(self):
@@ -247,13 +248,14 @@ class TestEarlyAcceptTiming:
         chunk = result.timing.chunks[0]
         assert chunk["attempts"] == 2  # both attempts counted (bug undercounted to 1)
         assert len(chunk["attempts_detail"]) == 2
-        assert chunk["attempts_detail"][0]["accepted"] is False  # rerolled
-        accepted = [a for a in chunk["attempts_detail"] if a["accepted"]]
+        assert chunk["attempts_detail"][0]["status"] is None  # rerolled
+        accepted = [a for a in chunk["attempts_detail"] if a["status"] == "accepted"]
         assert len(accepted) == 1
         assert accepted[0]["attempt"] == 1
         assert accepted[0]["wer"] == 0.1
         assert accepted[0]["wer_source"] == "whisper"
         assert accepted[0]["repeat_penalty"] == 1.1  # base + 1 * reroll_step
+        assert chunk["status"] == "accepted"
 
     def test_server_total_attempts_counts_accepted(self):
         """The accepted attempt contributes to the request attempt total seen by
@@ -301,7 +303,7 @@ class TestExhaustRetries:
         engine.tts.infer = mock_infer
 
         def fake_wer(wav, text):
-            rms = float(np.sqrt(np.mean(wav.astype(np.float64)**2)))
+            rms = float(np.sqrt(np.mean(wav.astype(np.float64) ** 2)))
             if rms < 0.01:
                 return 1.0, "confidence", False
             return 0.05, "confidence", False  # above threshold (0.0) -> no early exit, but keeps best
@@ -310,8 +312,14 @@ class TestExhaustRetries:
             result = engine.synthesize("hello world test")
 
         assert call_count == 3
-        rms = float(np.sqrt(np.mean(result.audio.astype(np.float64)**2)))
+        rms = float(np.sqrt(np.mean(result.audio.astype(np.float64) ** 2)))
         assert rms > 0.01
+        assert result.timing is not None
+        chunk = result.timing.chunks[0]
+        assert chunk["status"] == "fallback"
+        fallback = [a for a in chunk["attempts_detail"] if a["status"] == "fallback"]
+        assert len(fallback) == 1
+        assert fallback[0]["attempt"] == 1
 
 
 # ── fail-open ────────────────────────────────────────────────────────────────
