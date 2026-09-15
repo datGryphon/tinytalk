@@ -12,6 +12,24 @@ Supported backends:
 
 The flake exports `nixosModules.default`.
 
+## Python installation
+
+The base `tinytalk` package intentionally does not install either ML backend.
+Install exactly the backend used by that environment:
+
+```bash
+pip install 'tinytalk[neutts]'
+# or
+pip install 'tinytalk[tinytauk]'
+```
+
+From a source checkout, use `pip install -e '.[neutts]'` or
+`pip install -e '.[tinytauk]'` (add `test` to the extras when developing).
+The backend stacks are kept separate because their Python/Torch dependency sets
+are incompatible. If `TINYTALK_BACKEND` selects a backend whose extra is not
+installed, TinyTalk fails at startup with an error naming the missing module and
+the matching install command.
+
 ## API
 
 ```
