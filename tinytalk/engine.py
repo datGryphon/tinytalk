@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Protocol
 
 import numpy as np
 
-from .config import Settings
+from .config import Backend, Settings
 from .quality import transcribe_chunk
 
 
@@ -40,25 +41,39 @@ class SpeechEngine(Protocol):
     ) -> SynthesisResult: ...
 
 
+_BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
+    "neutts": ("tinytalk.backends.neutts", "NeuTTSEngine"),
+    "tinytauk": ("tinytalk.backends.tinytauk", "TinyTAuKEngine"),
+}
+
+
+def _backend_class(backend: Backend):
+    module_name, class_name = _BACKEND_CLASSES[backend]
+    try:
+        module = import_module(module_name)
+    except ModuleNotFoundError as exc:
+        # A missing TinyTalk module indicates a packaging/programming error, not
+        # an omitted optional backend extra. Do not disguise that case.
+        if exc.name and exc.name.startswith("tinytalk."):
+            raise
+        missing = exc.name or "an optional dependency"
+        raise RuntimeError(
+            f"TinyTalk backend {backend!r} is not installed: missing Python module {missing!r}. "
+            f"Install it with `pip install 'tinytalk[{backend}]'` or, from a source checkout, "
+            f"`pip install -e '.[{backend}]'`."
+        ) from exc
+    return getattr(module, class_name)
+
+
 def create_engine(settings: Settings) -> SpeechEngine:
-    # The backends currently have incompatible ML dependency stacks. Import
-    # only the selected implementation so one service instance needs only its
-    # own runtime dependencies.
-    if settings.backend == "neutts":
-        from .backends.neutts import NeuTTSEngine
-
-        return NeuTTSEngine(settings)
-    if settings.backend == "tinytauk":
-        from .backends.tinytauk import TinyTAuKEngine
-
-        return TinyTAuKEngine(settings)
-    raise ValueError(f"unsupported synthesis backend: {settings.backend!r}")
+    # Backend ML stacks are intentionally isolated. Import only the selected
+    # implementation so one service instance needs only its own dependencies.
+    engine_class = _backend_class(settings.backend)
+    return engine_class(settings)
 
 
 class TinyTalkEngine:
-    """Backward-compatible constructor for callers that expect NeuTTS."""
+    """Backward-compatible constructor that dispatches to ``settings.backend``."""
 
     def __new__(cls, settings: Settings):
-        from .backends.neutts import NeuTTSEngine
-
-        return NeuTTSEngine(settings)
+        return create_engine(settings)
