@@ -139,63 +139,60 @@ class OmniVoiceEngine:
             quality: QualityResult | None = None
             accept_early = False
 
+            infer_start = time.perf_counter()
             try:
-                infer_start = time.perf_counter()
-                try:
-                    audios = self.tts.generate(
-                        text=chunk_text,
-                        language=language,
-                        voice_clone_prompt=(
-                            self.voice_clone_prompt if mode == "clone" else None
-                        ),
-                        instruct=instructions if mode == "design" else None,
-                        speed=speed,
-                        class_temperature=class_temperature,
-                        postprocess_output=True,
-                    )
-                finally:
-                    t_infer = time.perf_counter() - infer_start
-
-                if not audios:
-                    raise ValueError("OmniVoice returned no audio")
-
-                dsp_start = time.perf_counter()
-                wav = np.asarray(audios[0], dtype=np.float32).squeeze()
-                if wav.ndim != 1 or wav.size == 0:
-                    raise ValueError("OmniVoice returned invalid audio shape")
-                wav = trim_edge_silence(
-                    wav,
-                    self.sample_rate,
-                    leading=index > 0,
-                    trailing=index < num_chunks - 1,
+                audios = self.tts.generate(
+                    text=chunk_text,
+                    language=language,
+                    voice_clone_prompt=(
+                        self.voice_clone_prompt if mode == "clone" else None
+                    ),
+                    instruct=instructions if mode == "design" else None,
+                    speed=speed,
+                    class_temperature=class_temperature,
+                    postprocess_output=True,
                 )
-                wav = peak_limit(wav)
-                wav = edge_fade(wav, 3.0, self.sample_rate)
-                t_dsp = time.perf_counter() - dsp_start
+            finally:
+                t_infer = time.perf_counter() - infer_start
 
-                quality_start = time.perf_counter()
-                quality = evaluate_audio(
-                    wav,
-                    self.sample_rate,
-                    target_text=chunk_text,
-                    endpoint=self.settings.wer_endpoint,
-                    prompt_text=instructions if mode == "design" else "",
-                    scaffold_text="",
-                    transcribe=engine_module.transcribe_chunk,
-                )
-                t_wer_check = time.perf_counter() - quality_start
-                wer_fallbacks += int(quality.fallback)
+            if not audios:
+                raise ValueError("OmniVoice returned no audio")
 
-                accept_early = quality_is_acceptable(quality, self.settings.wer_threshold)
-                rank = quality_rank(quality)
-                if accept_early or best_rank is None or rank < best_rank:
-                    best_rank = rank
-                    best_audio = wav
-                    best_quality = quality
-                    best_attempt = attempt
-                    best_temperature = class_temperature
-            except ValueError:
-                pass
+            dsp_start = time.perf_counter()
+            wav = np.asarray(audios[0], dtype=np.float32).squeeze()
+            if wav.ndim != 1 or wav.size == 0:
+                raise ValueError("OmniVoice returned invalid audio shape")
+            wav = trim_edge_silence(
+                wav,
+                self.sample_rate,
+                leading=index > 0,
+                trailing=index < num_chunks - 1,
+            )
+            wav = peak_limit(wav)
+            wav = edge_fade(wav, 3.0, self.sample_rate)
+            t_dsp = time.perf_counter() - dsp_start
+
+            quality_start = time.perf_counter()
+            quality = evaluate_audio(
+                wav,
+                self.sample_rate,
+                target_text=chunk_text,
+                endpoint=self.settings.wer_endpoint,
+                prompt_text=instructions if mode == "design" else "",
+                scaffold_text="",
+                transcribe=engine_module.transcribe_chunk,
+            )
+            t_wer_check = time.perf_counter() - quality_start
+            wer_fallbacks += int(quality.fallback)
+
+            accept_early = quality_is_acceptable(quality, self.settings.wer_threshold)
+            rank = quality_rank(quality)
+            if accept_early or best_rank is None or rank < best_rank:
+                best_rank = rank
+                best_audio = wav
+                best_quality = quality
+                best_attempt = attempt
+                best_temperature = class_temperature
 
             detail = {
                 "attempt": attempt,
