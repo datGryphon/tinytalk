@@ -65,7 +65,7 @@ def test_missing_backend_extra_has_actionable_error(monkeypatch):
 
     monkeypatch.setattr(engine_module, "import_module", missing_import)
 
-    with pytest.raises(RuntimeError, match=r"pip install 'tinytalk\[tinytauk\]'" ):
+    with pytest.raises(RuntimeError, match=r"pip install 'tinytalk\[tinytauk\]'"):
         create_engine(Settings(backend="tinytauk"))
 
 
