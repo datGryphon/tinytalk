@@ -22,7 +22,7 @@ neutts = [
   "praat-parselmouth",
 ]
 tinytauk = [
-  "tinytauk @ https://github.com/datGryphon/tinytauk/archive/706f51d2dd8063f2b314bf8367c2839e73e7f3a9.tar.gz",
+  "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.1.tar.gz",
 ]
 test = [
   "pytest",
