@@ -53,6 +53,14 @@
           override = ./nix/overrides/transformers-5.17.txt;
         };
 
+        neutts-torch211 = mkDevShell {
+          python = pkgs.python313;
+          venv = ".venv-neutts-torch211";
+          extras = "neutts,test";
+          backend = "neutts";
+          override = ./nix/overrides/neutts-torch-2.11.txt;
+        };
+
         tinytauk = mkDevShell {
           python = pkgs.python313;
           venv = ".venv-tinytauk";
@@ -68,6 +76,14 @@
           venv = ".venv-omnivoice";
           extras = "omnivoice,test";
           backend = "omnivoice";
+        };
+
+        omnivoice-torch211 = mkDevShell {
+          python = pkgs.python313;
+          venv = ".venv-omnivoice-torch211";
+          extras = "omnivoice,test";
+          backend = "omnivoice";
+          override = ./nix/overrides/omnivoice-torch-2.11.txt;
         };
       };
     };
