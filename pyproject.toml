@@ -16,8 +16,6 @@ neutts = [
   "neutts[all]==1.4.1",
   "torch==2.8.0",
   "torchaudio==2.8.0",
-  "torchao==0.13.0",
-  "torchtune==0.6.1",
   "librosa",
   "praat-parselmouth",
 ]

@@ -43,6 +43,7 @@
           venv = ".venv";
           extras = "neutts,test";
           backend = "neutts";
+          override = ./nix/overrides/neutts-legacy.txt;
         };
 
         neutts-transformers517 = mkDevShell {

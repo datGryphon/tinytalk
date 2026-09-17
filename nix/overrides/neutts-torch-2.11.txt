@@ -1,5 +1,4 @@
+neucodec @ https://github.com/datGryphon/neucodec/archive/6954b1f877963e19177b43be1ef56b1818990d31.tar.gz
 torch==2.11.0
 torchaudio==2.11.0
-torchao==0.17.0
-torchtune==0.6.1
 transformers==5.17.0
