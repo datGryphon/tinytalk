@@ -43,23 +43,8 @@
           venv = ".venv";
           extras = "neutts,test";
           backend = "neutts";
-          override = ./nix/overrides/neutts-legacy.txt;
-        };
-
-        neutts-transformers517 = mkDevShell {
-          python = pkgs.python313;
-          venv = ".venv-neutts-transformers517";
-          extras = "neutts,test";
-          backend = "neutts";
-          override = ./nix/overrides/transformers-5.17.txt;
-        };
-
-        neutts-torch211 = mkDevShell {
-          python = pkgs.python313;
-          venv = ".venv-neutts-torch211";
-          extras = "neutts,test";
-          backend = "neutts";
-          override = ./nix/overrides/neutts-torch-2.11.txt;
+          # Qualified compatibility override for upstream NeuTTS metadata.
+          override = ./nix/overrides/neutts.txt;
         };
 
         tinytauk = mkDevShell {
@@ -77,15 +62,10 @@
           venv = ".venv-omnivoice";
           extras = "omnivoice,test";
           backend = "omnivoice";
+          # Keep OmniVoice on the same qualified runtime baseline as NeuTTS.
+          override = ./nix/overrides/omnivoice.txt;
         };
 
-        omnivoice-torch211 = mkDevShell {
-          python = pkgs.python313;
-          venv = ".venv-omnivoice-torch211";
-          extras = "omnivoice,test";
-          backend = "omnivoice";
-          override = ./nix/overrides/omnivoice-torch-2.11.txt;
-        };
       };
     };
 }
