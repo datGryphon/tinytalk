@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -223,3 +224,41 @@ def test_quality_exhaustion_returns_best_candidate_as_fallback(monkeypatch):
     assert sum(
         detail["status"] == "fallback" for detail in timing["attempts_detail"]
     ) == 1
+
+
+def test_exhausted_retries_keep_best_waveform_and_fallback_count(monkeypatch):
+    engine = make_engine(
+        monkeypatch,
+        Settings(backend="omnivoice", max_retries=2),
+    )
+    amplitudes = iter([0.1, 0.2, 0.3])
+    qualities = iter([
+        replace(bad_quality(), wer=0.6, cer=0.6, source="confidence", fallback=True),
+        replace(bad_quality(), wer=0.3, cer=0.3),
+        replace(bad_quality(), wer=0.7, cer=0.7),
+    ])
+
+    monkeypatch.setattr(
+        FakeOmniVoice.model,
+        "generate",
+        lambda **_kwargs: [np.full(2400, next(amplitudes), dtype=np.float32)],
+    )
+    monkeypatch.setattr(
+        omnivoice_backend,
+        "evaluate_audio",
+        lambda *args, **kwargs: next(qualities),
+    )
+
+    result = engine.synthesize("hello world")
+    timing = result.timing.chunks[0]
+
+    assert np.max(result.audio) == pytest.approx(0.2)
+    assert result.timing.wer_fallbacks == 1
+    assert timing["attempts"] == 3
+    assert timing["class_temperature"] == pytest.approx(0.2)
+    assert timing["wer"] == pytest.approx(0.3)
+    assert [detail["status"] for detail in timing["attempts_detail"]] == [
+        None,
+        "fallback",
+        None,
+    ]
