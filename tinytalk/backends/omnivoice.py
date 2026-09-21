@@ -163,25 +163,15 @@ class OmniVoiceEngine:
         if best_audio is None or best_quality is None:
             raise RuntimeError(f"All {num_attempts} attempts produced no usable OmniVoice audio")
 
-        selected_status = (
-            "accepted"
-            if quality_is_acceptable(best_quality, self.settings.wer_threshold)
-            else "fallback"
+        chunk_timing = self._chunk_timing(
+            index=index,
+            mode=mode,
+            audio=best_audio,
+            quality=best_quality,
+            temperature=best_temperature,
+            selected_attempt=best_attempt,
+            details=attempt_details,
         )
-        attempt_details[best_attempt]["status"] = selected_status
-
-        chunk_timing = {
-            "index": index,
-            "attempts": len(attempt_details),
-            "status": selected_status,
-            "duration": float(len(best_audio) / self.sample_rate),
-            "repeat_penalty": None,
-            "class_temperature": best_temperature,
-            "mode": mode,
-            "t_f0": 0.0,
-            "attempts_detail": attempt_details,
-        }
-        chunk_timing.update(best_quality.timing_fields())
         return best_audio, chunk_timing, wer_fallbacks
 
     def _run_attempt(
@@ -299,6 +289,38 @@ class OmniVoiceEngine:
             transcribe=engine_module.transcribe_chunk,
         )
         return quality, time.perf_counter() - start
+
+    def _chunk_timing(
+        self,
+        *,
+        index: int,
+        mode: str,
+        audio: np.ndarray,
+        quality: QualityResult,
+        temperature: float,
+        selected_attempt: int,
+        details: list[dict],
+    ) -> dict:
+        status = (
+            "accepted"
+            if quality_is_acceptable(quality, self.settings.wer_threshold)
+            else "fallback"
+        )
+        details[selected_attempt]["status"] = status
+
+        timing = {
+            "index": index,
+            "attempts": len(details),
+            "status": status,
+            "duration": float(len(audio) / self.sample_rate),
+            "repeat_penalty": None,
+            "class_temperature": temperature,
+            "mode": mode,
+            "t_f0": 0.0,
+            "attempts_detail": details,
+        }
+        timing.update(quality.timing_fields())
+        return timing
 
     def _mode(self, instructions: str | None) -> str:
         if instructions:
