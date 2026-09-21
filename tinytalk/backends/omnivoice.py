@@ -122,77 +122,43 @@ class OmniVoiceEngine:
         num_attempts = self.settings.max_retries + 1
         best_audio: np.ndarray | None = None
         best_quality: QualityResult | None = None
-        best_rank: tuple[bool, bool, float, float] | None = None
         best_attempt = -1
         best_temperature = 0.0
         wer_fallbacks = 0
         attempt_details: list[dict] = []
 
         for attempt in range(num_attempts):
-            class_temperature = min(
+            temperature = min(
                 _MAX_RETRY_CLASS_TEMPERATURE,
                 attempt * _RETRY_CLASS_TEMPERATURE_STEP,
             )
-            t_infer = 0.0
-            t_dsp = 0.0
-            t_wer_check = 0.0
-            quality: QualityResult | None = None
-            accept_early = False
-
-            infer_start = time.perf_counter()
-            try:
-                audios = self.tts.generate(
-                    text=chunk_text,
-                    language=language,
-                    voice_clone_prompt=(
-                        self.voice_clone_prompt if mode == "clone" else None
-                    ),
-                    instruct=instructions if mode == "design" else None,
-                    speed=speed,
-                    class_temperature=class_temperature,
-                    postprocess_output=True,
-                )
-            finally:
-                t_infer = time.perf_counter() - infer_start
-
-            if not audios:
-                raise ValueError("OmniVoice returned no audio")
-
-            dsp_start = time.perf_counter()
-            wav = np.asarray(audios[0], dtype=np.float32).squeeze()
-            if wav.ndim != 1 or wav.size == 0:
-                raise ValueError("OmniVoice returned invalid audio shape")
-            wav = trim_edge_silence(
-                wav,
-                self.sample_rate,
-                leading=index > 0,
-                trailing=index < num_chunks - 1,
+            raw_audio, t_infer = self._generate_audio(
+                chunk_text,
+                mode=mode,
+                instructions=instructions,
+                language=language,
+                speed=speed,
+                temperature=temperature,
             )
-            wav = peak_limit(wav)
-            wav = edge_fade(wav, 3.0, self.sample_rate)
-            t_dsp = time.perf_counter() - dsp_start
-
-            quality_start = time.perf_counter()
-            quality = evaluate_audio(
-                wav,
-                self.sample_rate,
-                target_text=chunk_text,
-                endpoint=self.settings.wer_endpoint,
-                prompt_text=instructions if mode == "design" else "",
-                scaffold_text="",
-                transcribe=engine_module.transcribe_chunk,
+            wav, t_dsp = self._postprocess_audio(
+                raw_audio,
+                index=index,
+                num_chunks=num_chunks,
             )
-            t_wer_check = time.perf_counter() - quality_start
+            quality, t_wer_check = self._evaluate_quality(
+                wav,
+                chunk_text,
+                mode=mode,
+                instructions=instructions,
+            )
             wer_fallbacks += int(quality.fallback)
 
-            accept_early = quality_is_acceptable(quality, self.settings.wer_threshold)
-            rank = quality_rank(quality)
-            if accept_early or best_rank is None or rank < best_rank:
-                best_rank = rank
+            accepted = quality_is_acceptable(quality, self.settings.wer_threshold)
+            if accepted or best_quality is None or quality_rank(quality) < quality_rank(best_quality):
                 best_audio = wav
                 best_quality = quality
                 best_attempt = attempt
-                best_temperature = class_temperature
+                best_temperature = temperature
 
             detail = {
                 "attempt": attempt,
@@ -200,14 +166,14 @@ class OmniVoiceEngine:
                 "t_dsp": t_dsp,
                 "t_wer_check": t_wer_check,
                 "repeat_penalty": None,
-                "class_temperature": class_temperature,
+                "class_temperature": temperature,
                 "mode": mode,
                 "status": None,
             }
-            detail.update(self._quality_timing_fields(quality))
+            detail.update(quality.timing_fields())
             attempt_details.append(detail)
 
-            if accept_early:
+            if accepted:
                 break
 
         if best_audio is None or best_quality is None:
@@ -236,6 +202,76 @@ class OmniVoiceEngine:
         chunk_timing.update(best_quality.timing_fields())
         return best_audio, chunk_timing, wer_fallbacks
 
+    def _generate_audio(
+        self,
+        text: str,
+        *,
+        mode: str,
+        instructions: str | None,
+        language: str | None,
+        speed: float | None,
+        temperature: float,
+    ) -> tuple[np.ndarray, float]:
+        if self.tts is None:
+            raise RuntimeError("engine not loaded. Call load() first")
+
+        start = time.perf_counter()
+        audios = self.tts.generate(
+            text=text,
+            language=language,
+            voice_clone_prompt=self.voice_clone_prompt if mode == "clone" else None,
+            instruct=instructions if mode == "design" else None,
+            speed=speed,
+            class_temperature=temperature,
+            postprocess_output=True,
+        )
+        elapsed = time.perf_counter() - start
+        if not audios:
+            raise ValueError("OmniVoice returned no audio")
+        return audios[0], elapsed
+
+    def _postprocess_audio(
+        self,
+        audio: np.ndarray,
+        *,
+        index: int,
+        num_chunks: int,
+    ) -> tuple[np.ndarray, float]:
+        start = time.perf_counter()
+        wav = np.asarray(audio, dtype=np.float32).squeeze()
+        if wav.ndim != 1 or wav.size == 0:
+            raise ValueError("OmniVoice returned invalid audio shape")
+
+        wav = trim_edge_silence(
+            wav,
+            self.sample_rate,
+            leading=index > 0,
+            trailing=index < num_chunks - 1,
+        )
+        wav = peak_limit(wav)
+        wav = edge_fade(wav, 3.0, self.sample_rate)
+        return wav, time.perf_counter() - start
+
+    def _evaluate_quality(
+        self,
+        wav: np.ndarray,
+        chunk_text: str,
+        *,
+        mode: str,
+        instructions: str | None,
+    ) -> tuple[QualityResult, float]:
+        start = time.perf_counter()
+        quality = evaluate_audio(
+            wav,
+            self.sample_rate,
+            target_text=chunk_text,
+            endpoint=self.settings.wer_endpoint,
+            prompt_text=instructions if mode == "design" else "",
+            scaffold_text="",
+            transcribe=engine_module.transcribe_chunk,
+        )
+        return quality, time.perf_counter() - start
+
     def _mode(self, instructions: str | None) -> str:
         if instructions:
             return "design"
@@ -260,17 +296,3 @@ class OmniVoiceEngine:
             raise RuntimeError("OmniVoice reference text is not configured")
         return self.settings.omnivoice_ref_text
 
-    @staticmethod
-    def _quality_timing_fields(quality: QualityResult | None) -> dict:
-        if quality is None:
-            return {
-                "wer": None,
-                "cer": None,
-                "substitutions": None,
-                "deletions": None,
-                "insertions": None,
-                "prompt_leak": None,
-                "wer_source": None,
-                "wer_fallback": None,
-            }
-        return quality.timing_fields()
