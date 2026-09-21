@@ -132,47 +132,31 @@ class OmniVoiceEngine:
                 _MAX_RETRY_CLASS_TEMPERATURE,
                 attempt * _RETRY_CLASS_TEMPERATURE_STEP,
             )
-            raw_audio, t_infer = self._generate_audio(
+            wav, quality, detail = self._run_attempt(
                 chunk_text,
-                mode=mode,
-                instructions=instructions,
-                language=language,
-                speed=speed,
-                temperature=temperature,
-            )
-            wav, t_dsp = self._postprocess_audio(
-                raw_audio,
+                attempt=attempt,
                 index=index,
                 num_chunks=num_chunks,
-            )
-            quality, t_wer_check = self._evaluate_quality(
-                wav,
-                chunk_text,
                 mode=mode,
                 instructions=instructions,
+                speed=speed,
+                language=language,
+                temperature=temperature,
             )
             wer_fallbacks += int(quality.fallback)
 
             accepted = quality_is_acceptable(quality, self.settings.wer_threshold)
-            if accepted or best_quality is None or quality_rank(quality) < quality_rank(best_quality):
+            if (
+                accepted
+                or best_quality is None
+                or quality_rank(quality) < quality_rank(best_quality)
+            ):
                 best_audio = wav
                 best_quality = quality
                 best_attempt = attempt
                 best_temperature = temperature
 
-            detail = {
-                "attempt": attempt,
-                "t_infer": t_infer,
-                "t_dsp": t_dsp,
-                "t_wer_check": t_wer_check,
-                "repeat_penalty": None,
-                "class_temperature": temperature,
-                "mode": mode,
-                "status": None,
-            }
-            detail.update(quality.timing_fields())
             attempt_details.append(detail)
-
             if accepted:
                 break
 
@@ -184,9 +168,7 @@ class OmniVoiceEngine:
             if quality_is_acceptable(best_quality, self.settings.wer_threshold)
             else "fallback"
         )
-        for detail in attempt_details:
-            if detail["attempt"] == best_attempt:
-                detail["status"] = selected_status
+        attempt_details[best_attempt]["status"] = selected_status
 
         chunk_timing = {
             "index": index,
@@ -201,6 +183,52 @@ class OmniVoiceEngine:
         }
         chunk_timing.update(best_quality.timing_fields())
         return best_audio, chunk_timing, wer_fallbacks
+
+    def _run_attempt(
+        self,
+        chunk_text: str,
+        *,
+        attempt: int,
+        index: int,
+        num_chunks: int,
+        mode: str,
+        instructions: str | None,
+        speed: float | None,
+        language: str | None,
+        temperature: float,
+    ) -> tuple[np.ndarray, QualityResult, dict]:
+        raw_audio, t_infer = self._generate_audio(
+            chunk_text,
+            mode=mode,
+            instructions=instructions,
+            language=language,
+            speed=speed,
+            temperature=temperature,
+        )
+        wav, t_dsp = self._postprocess_audio(
+            raw_audio,
+            index=index,
+            num_chunks=num_chunks,
+        )
+        quality, t_wer_check = self._evaluate_quality(
+            wav,
+            chunk_text,
+            mode=mode,
+            instructions=instructions,
+        )
+
+        detail = {
+            "attempt": attempt,
+            "t_infer": t_infer,
+            "t_dsp": t_dsp,
+            "t_wer_check": t_wer_check,
+            "repeat_penalty": None,
+            "class_temperature": temperature,
+            "mode": mode,
+            "status": None,
+        }
+        detail.update(quality.timing_fields())
+        return wav, quality, detail
 
     def _generate_audio(
         self,
