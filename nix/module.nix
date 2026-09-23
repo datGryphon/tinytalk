@@ -277,7 +277,7 @@ let
     TINYTALK_TINYTAUK_CHARS_PER_SECOND = toString cfg.tinytaukCharsPerSecond;
   }
   // lib.optionalAttrs (cfg.tinytaukProfile != null) {
-    TINYTALK_TINYTAUK_PROFILE = toString cfg.tinytaukProfile;
+    TINYTALK_TINYTAUK_PROFILE = "${cfg.tinytaukProfile}";
   };
 
   omnivoiceEnvironment = {
@@ -322,7 +322,7 @@ let
     TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
     TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
     TINYTALK_RUNTIME_REQUIREMENTS = toString requirementsFile;
-    TINYTALK_RUNTIME_OVERRIDE = if runtimeOverrideFile == null then "" else toString runtimeOverrideFile;
+    TINYTALK_RUNTIME_OVERRIDE = if runtimeOverrideFile == null then "" else "${runtimeOverrideFile}";
     PYTHONPATH = "${self.outPath}:${pythonTarget}";
     LD_LIBRARY_PATH = lib.makeLibraryPath [
       pkgs.ffmpeg_8.lib
