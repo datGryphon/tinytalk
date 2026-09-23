@@ -18,7 +18,7 @@ let
         export TINYTALK_BACKEND="${backend}"
         export TINYTALK_PYTHON="${python}/bin/python"
         export TINYTALK_VENV="${venv}"
-        export TINYTALK_OVERRIDE_FILE="${if override == null then "" else toString override}"
+        export TINYTALK_OVERRIDE_FILE="${if override == null then "" else "${override}"}"
         source ${./dev-shell-setup.sh}
       '';
     };
