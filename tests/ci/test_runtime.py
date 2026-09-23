@@ -1,48 +1,74 @@
-"""Runtime compatibility checks. Backend requirements live in runtime-contracts.json."""
+"""Validate the installed backend against the canonical project metadata."""
 
 import importlib.metadata as metadata
 import importlib.util
 import json
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 
 
-CONTRACTS = json.loads(Path(__file__).with_name("runtime-contracts.json").read_text())
+PROJECT = tomllib.loads(Path("pyproject.toml").read_text())
+BACKEND = os.environ["TINYTALK_BACKEND"]
 
 
-@pytest.fixture(scope="module")
-def contract():
-    backend = os.environ.get("TINYTALK_BACKEND")
-    if backend not in CONTRACTS["backends"]:
-        pytest.fail(f"No runtime contract for TINYTALK_BACKEND={backend!r}")
-    return CONTRACTS["backends"][backend]
+def _name(requirement: str) -> str:
+    head = requirement.split(" @ ", 1)[0].split("==", 1)[0].strip()
+    return head.split("[", 1)[0]
+
+
+def _installed(name: str) -> bool:
+    try:
+        metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return False
+    return True
+
+
+def _check_requirement(requirement: str, *, required: bool) -> None:
+    name = _name(requirement)
+    if not required and not _installed(name):
+        return
+
+    actual = metadata.version(name)
+    if "==" in requirement:
+        wanted = requirement.split("==", 1)[1].strip()
+        assert actual == wanted or actual.split("+", 1)[0] == wanted, (
+            name,
+            actual,
+            wanted,
+        )
+
+    if " @ " in requirement:
+        wanted_url = requirement.split(" @ ", 1)[1].strip()
+        direct_url = metadata.distribution(name).read_text("direct_url.json")
+        assert direct_url is not None, f"Missing direct_url.json for {name}"
+        actual_url = json.loads(direct_url)["url"]
+        assert actual_url == wanted_url or wanted_url in actual_url, (
+            name,
+            actual_url,
+            wanted_url,
+        )
 
 
 def test_python_version():
-    assert list(sys.version_info[:2]) == CONTRACTS["python"]
+    assert sys.version_info[:2] == (3, 13)
 
 
-def test_distribution_versions(contract):
-    expected = CONTRACTS["shared"] | contract.get("distributions", {})
-    for package, wanted in expected.items():
-        actual = metadata.version(package)
-        print(f"{package}: {actual}")
-        assert actual == wanted or (
-            "+" not in wanted and actual.split("+")[0] == wanted
-        ), (package, actual, wanted)
+def test_backend_dependencies_match_project():
+    requirements = PROJECT["project"]["optional-dependencies"][BACKEND]
+    for requirement in requirements:
+        _check_requirement(requirement, required=True)
 
 
-def test_direct_sources(contract):
-    for package, expected_fragment in contract.get("source_fragments", {}).items():
-        source_info = metadata.distribution(package).read_text("direct_url.json")
-        assert source_info is not None, f"Missing direct_url.json for {package}"
-        url = json.loads(source_info)["url"]
-        assert expected_fragment in url, (package, url)
+def test_installed_overrides_match_project():
+    for requirement in PROJECT["tool"]["uv"]["override-dependencies"]:
+        _check_requirement(requirement, required=False)
 
 
-def test_forbidden_dependencies_absent(contract):
-    for package in contract.get("absent", []):
-        assert importlib.util.find_spec(package) is None, package
+@pytest.mark.parametrize("package", ["torchtune", "torchao"])
+def test_removed_runtime_dependencies_are_absent(package):
+    assert importlib.util.find_spec(package) is None
