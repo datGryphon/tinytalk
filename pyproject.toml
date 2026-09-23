@@ -19,6 +19,7 @@ neutts = [
 ]
 tinytauk = [
   "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.2.0.tar.gz",
+  "torchvision",
 ]
 omnivoice = [
   "omnivoice==0.2.1",
