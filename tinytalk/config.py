@@ -17,6 +17,7 @@ class Settings:
     ref_text: Path = Path("/var/lib/tinytalk/ref_text.txt")
     tinytauk_model: str = "tencent/AuK-Flash"
     tinytauk_qwen_model: str = "Qwen/Qwen2.5-Omni-3B"
+    tinytauk_profile: Path | None = None
     tinytauk_chars_per_second: float = 14.0
     omnivoice_model: str = "k2-fsa/OmniVoice"
     omnivoice_device: str = "cpu"
@@ -48,6 +49,7 @@ def load_settings() -> Settings:
         tinytauk_qwen_model=os.getenv(
             "TINYTALK_TINYTAUK_QWEN_MODEL", Settings.tinytauk_qwen_model
         ),
+        tinytauk_profile=_optional_path_env("TINYTALK_TINYTAUK_PROFILE"),
         tinytauk_chars_per_second=_float_env(
             "TINYTALK_TINYTAUK_CHARS_PER_SECOND", Settings.tinytauk_chars_per_second
         ),
