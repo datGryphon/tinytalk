@@ -25,12 +25,18 @@ jobs:
           - backend: neutts
             label: NeuTTS
             override-file: nix/overrides/neutts.txt
+            pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
           - backend: omnivoice
             label: OmniVoice
             override-file: nix/overrides/omnivoice.txt
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
           - backend: tinytauk
             label: TinyTAuK
             override-file: ''
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
+
+    env:
+      TINYTALK_BACKEND: ${{ matrix.backend }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,11 +50,11 @@ jobs:
           extras: ${{ matrix.backend }},test
           override-file: ${{ matrix.override-file }}
 
-      - name: Check backend
-        uses: ./.github/actions/check-backend
+      - name: Run backend tests and runtime contract
+        uses: ./.github/actions/run-check
         with:
-          backend: ${{ matrix.backend }}
-          python-path: ${{ steps.setup.outputs.python-path }}
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: ${{ matrix.pytest-arguments }}
 
   nix:
     name: Nix / ${{ matrix.label }}
@@ -61,12 +67,15 @@ jobs:
           - backend: neutts
             label: NeuTTS
             shell: default
+            pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
           - backend: omnivoice
             label: OmniVoice
             shell: omnivoice
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
           - backend: tinytauk
             label: TinyTAuK
             shell: tinytauk
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,10 +88,11 @@ jobs:
         if: matrix.backend == 'neutts'
         run: nix flake check
 
-      - name: Check backend
-        uses: ./.github/actions/check-backend
+      - name: Run backend tests and runtime contract
+        uses: ./.github/actions/run-check
         with:
-          backend: ${{ matrix.backend }}
+          executable: python
+          arguments: ${{ matrix.pytest-arguments }}
           nix-shell: ${{ matrix.shell }}
 
   shared:
@@ -102,20 +112,26 @@ jobs:
           extras: neutts,omnivoice,tinytauk,test
           override-file: nix/overrides/neutts.txt
 
-      - name: Check NeuTTS in shared runtime
-        uses: ./.github/actions/check-backend
+      - name: Run NeuTTS tests and runtime contract
+        uses: ./.github/actions/run-check
+        env:
+          TINYTALK_BACKEND: neutts
         with:
-          backend: neutts
-          python-path: ${{ steps.setup.outputs.python-path }}
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
 
-      - name: Check OmniVoice in shared runtime
-        uses: ./.github/actions/check-backend
+      - name: Run OmniVoice tests and runtime contract
+        uses: ./.github/actions/run-check
+        env:
+          TINYTALK_BACKEND: omnivoice
         with:
-          backend: omnivoice
-          python-path: ${{ steps.setup.outputs.python-path }}
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
 
-      - name: Check TinyTAuK in shared runtime
-        uses: ./.github/actions/check-backend
+      - name: Run TinyTAuK tests and runtime contract
+        uses: ./.github/actions/run-check
+        env:
+          TINYTALK_BACKEND: tinytauk
         with:
-          backend: tinytauk
-          python-path: ${{ steps.setup.outputs.python-path }}
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
