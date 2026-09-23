@@ -1,14 +1,10 @@
-name: Set up native Python backend
-description: Install the selected TinyTalk extras into one Ubuntu Python virtual environment.
+name: Set up native Python environment
+description: Sync a locked TinyTalk project environment with the requested extras.
 
 inputs:
   extras:
-    description: Comma-separated TinyTalk extras without brackets (e.g. neutts,test).
+    description: JSON array of TinyTalk extras to install.
     required: true
-  override-file:
-    description: Optional uv override file; empty means no override.
-    required: false
-    default: ''
   python-version:
     description: Python version used for the environment.
     required: false
@@ -16,7 +12,7 @@ inputs:
 
 outputs:
   python-path:
-    description: Absolute path to the installed Python interpreter.
+    description: Absolute path to the synced Python interpreter.
     value: ${{ steps.paths.outputs.python-path }}
 
 runs:
@@ -34,32 +30,25 @@ runs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng libsndfile1
 
-    - name: Create Python environment
-      shell: bash
-      env:
-        PYTHON_VERSION: ${{ inputs.python-version }}
-      run: |
-        uv python install "$PYTHON_VERSION"
-        uv venv --python "$PYTHON_VERSION" .venv
-
-    - name: Install backend extras
+    - name: Sync locked environment
       shell: bash
       env:
         EXTRAS: ${{ inputs.extras }}
-        OVERRIDE_FILE: ${{ inputs.override-file }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
-        override_args=()
-        if [[ -n "$OVERRIDE_FILE" ]]; then
-          [[ -f "$OVERRIDE_FILE" ]] || { echo "Missing override: $OVERRIDE_FILE" >&2; exit 1; }
-          override_args=(--override "$OVERRIDE_FILE")
-        fi
-        uv pip install \
-          --python .venv/bin/python \
-          --index-url https://pypi.org/simple \
-          --extra-index-url https://download.pytorch.org/whl/cpu \
-          --index-strategy unsafe-best-match \
-          "${override_args[@]}" \
-          -e ".[${EXTRAS}]"
+        jq -e 'type == "array" and all(.[]; type == "string")' <<< "$EXTRAS" >/dev/null
+        mapfile -t extras < <(jq -r '.[]' <<< "$EXTRAS")
+        extra_args=()
+        for extra in "${extras[@]}"; do
+          extra_args+=(--extra "$extra")
+        done
+
+        uv python install "$PYTHON_VERSION"
+        UV_PROJECT_ENVIRONMENT="$GITHUB_WORKSPACE/.venv" \
+          uv sync \
+            --frozen \
+            --python "$PYTHON_VERSION" \
+            "${extra_args[@]}"
 
     - name: Publish interpreter path
       id: paths
