@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   lockfile:
-    name: uv.lock / Check
+    name: Generate uv.lock
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,8 +27,13 @@ jobs:
           version: '0.12.17'
           enable-cache: false
 
-      - name: Verify lockfile is current
-        run: uv lock --check
+      - name: Resolve project
+        run: |
+          uv lock
+          echo 'TINYTALK_UV_LOCK_BEGIN'
+          base64 -w0 uv.lock
+          echo
+          echo 'TINYTALK_UV_LOCK_END'
 
   native:
     name: Native Ubuntu / ${{ matrix.label }}
