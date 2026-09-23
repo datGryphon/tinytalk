@@ -64,8 +64,7 @@ def _backend_class(backend: Backend):
         missing = exc.name or "an optional dependency"
         raise RuntimeError(
             f"TinyTalk backend {backend!r} is not installed: missing Python module {missing!r}. "
-            f"Install it with `pip install 'tinytalk[{backend}]'` or, from a source checkout, "
-            f"`pip install -e '.[{backend}]'`."
+            f"From a source checkout run `uv sync --frozen --extra {backend}`."
         ) from exc
     return getattr(module, class_name)
 
