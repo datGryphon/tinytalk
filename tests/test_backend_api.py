@@ -67,7 +67,7 @@ def test_missing_backend_extra_has_actionable_error(monkeypatch, backend):
 
     monkeypatch.setattr(engine_module, "import_module", missing_import)
 
-    expected = rf"pip install 'tinytalk\[{backend}\]'"
+    expected = rf"uv sync --frozen --extra {backend}"
     with pytest.raises(RuntimeError, match=expected):
         create_engine(Settings(backend=backend))
 
