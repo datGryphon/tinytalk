@@ -16,13 +16,17 @@ concurrency:
 
 jobs:
   native:
-    name: Native Ubuntu / ${{ matrix.backend }}
+    name: Native Ubuntu / ${{ matrix.label }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        backend: [neutts, omnivoice]
+        include:
+          - backend: neutts
+            label: NeuTTS
+          - backend: omnivoice
+            label: OmniVoice
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,13 +65,19 @@ jobs:
           bash scripts/ci-smoke.sh
 
   nix:
-    name: Nix / ${{ matrix.shell }}
+    name: Nix / ${{ matrix.label }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shell: [default, omnivoice]
+        include:
+          - backend: neutts
+            label: NeuTTS
+            shell: default
+          - backend: omnivoice
+            label: OmniVoice
+            shell: omnivoice
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
