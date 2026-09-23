@@ -13,26 +13,32 @@ let
     "spacy"
   ];
 
-  neuttsRuntimePackages = commonRuntimePackages ++ [
-    "torch==2.8.0+cpu"
-    "torchaudio==2.8.0+cpu"
-    "torchao==0.13.0"
-    "torchtune==0.6.1"
+  qualifiedRuntimePackages = commonRuntimePackages ++ [
+    "torch==2.11.0+cpu"
+    "torchaudio==2.11.0+cpu"
+    "transformers==5.17.0"
+  ];
+
+  neuttsRuntimePackages = qualifiedRuntimePackages ++ [
     "neutts[all]==1.4.1"
+    "neucodec @ https://github.com/datGryphon/neucodec/archive/6954b1f877963e19177b43be1ef56b1818990d31.tar.gz"
     "librosa"
     "praat-parselmouth"
   ];
 
-  tinytaukRuntimePackages = commonRuntimePackages ++ [
-    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.1.tar.gz"
+  tinytaukRuntimePackages = qualifiedRuntimePackages ++ [
+    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.2.0.tar.gz"
   ];
 
-  omnivoiceRuntimePackages = commonRuntimePackages ++ [
-    "torch==2.8.0+cpu"
-    "torchaudio==2.8.0+cpu"
-    "transformers>=5.3,<6"
+  omnivoiceRuntimePackages = qualifiedRuntimePackages ++ [
     "omnivoice==0.2.1"
   ];
+
+  # Upstream NeuTTS/OmniVoice metadata still pins the older Torch runtime.
+  runtimeOverrideFile =
+    if cfg.backend == "neutts" then ./overrides/neutts.txt
+    else if cfg.backend == "omnivoice" then ./overrides/omnivoice.txt
+    else null;
 
   runtimePackages =
     if cfg.backend == "tinytauk" then tinytaukRuntimePackages
@@ -150,6 +156,12 @@ let
   };
 
   tinytaukOptions = {
+    tinytaukProfile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Optional TinyTAuK v0.2 TOML runtime profile. When set, model IDs, devices, dtypes, seed and thread count come from the profile.";
+    };
+
     tinytaukModel = lib.mkOption {
       type = lib.types.str;
       default = "tencent/AuK-Flash";
@@ -263,6 +275,9 @@ let
     TINYTALK_TINYTAUK_MODEL = cfg.tinytaukModel;
     TINYTALK_TINYTAUK_QWEN_MODEL = cfg.tinytaukQwenModel;
     TINYTALK_TINYTAUK_CHARS_PER_SECOND = toString cfg.tinytaukCharsPerSecond;
+  }
+  // lib.optionalAttrs (cfg.tinytaukProfile != null) {
+    TINYTALK_TINYTAUK_PROFILE = toString cfg.tinytaukProfile;
   };
 
   omnivoiceEnvironment = {
@@ -307,8 +322,14 @@ let
     TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
     TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
     TINYTALK_RUNTIME_REQUIREMENTS = toString requirementsFile;
+    TINYTALK_RUNTIME_OVERRIDE = if runtimeOverrideFile == null then "" else toString runtimeOverrideFile;
     PYTHONPATH = "${self.outPath}:${pythonTarget}";
-    LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
+    LD_LIBRARY_PATH = lib.makeLibraryPath [
+      pkgs.ffmpeg_8.lib
+      pkgs.libsndfile
+      pkgs.stdenv.cc.cc.lib
+      pkgs.zlib
+    ];
     HOME = "/var/lib/tinytalk";
     UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
   };
