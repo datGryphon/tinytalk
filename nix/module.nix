@@ -4,46 +4,7 @@
 let
   cfg = config.services.tinytalk;
   python = pkgs.python313;
-  pythonTarget = "/var/lib/tinytalk/python";
-
-  commonRuntimePackages = [
-    "fastapi"
-    "uvicorn[standard]"
-    "numpy"
-    "spacy"
-  ];
-
-  qualifiedRuntimePackages = commonRuntimePackages ++ [
-    "torch==2.11.0+cpu"
-    "torchaudio==2.11.0+cpu"
-    "transformers==5.17.0"
-  ];
-
-  neuttsRuntimePackages = qualifiedRuntimePackages ++ [
-    "neutts[all]==1.4.1"
-    "neucodec @ https://github.com/datGryphon/neucodec/archive/6954b1f877963e19177b43be1ef56b1818990d31.tar.gz"
-    "librosa"
-    "praat-parselmouth"
-  ];
-
-  tinytaukRuntimePackages = qualifiedRuntimePackages ++ [
-    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.2.0.tar.gz"
-  ];
-
-  omnivoiceRuntimePackages = qualifiedRuntimePackages ++ [
-    "omnivoice==0.2.1"
-  ];
-
-  # Upstream NeuTTS/OmniVoice metadata still pins the older Torch runtime.
-  runtimeOverrideFile =
-    if cfg.backend == "neutts" then ./overrides/neutts.txt
-    else if cfg.backend == "omnivoice" then ./overrides/omnivoice.txt
-    else null;
-
-  runtimePackages =
-    if cfg.backend == "tinytauk" then tinytaukRuntimePackages
-    else if cfg.backend == "omnivoice" then omnivoiceRuntimePackages
-    else neuttsRuntimePackages;
+  pythonEnvironment = "/var/lib/tinytalk/python";
 
   commonOptions = {
     enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
@@ -225,24 +186,6 @@ let
       default = null;
       description = "systemd MemoryMax. Null selects the backend default.";
     };
-
-    runtimeIndexUrl = lib.mkOption {
-      type = lib.types.str;
-      default = "https://pypi.org/simple";
-      description = "Default/fallback Python package index used by the runtime bootstrap.";
-    };
-
-    runtimeExtraIndexUrls = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [ "https://download.pytorch.org/whl/cpu" ];
-      description = "Higher-priority Python package indexes used by the runtime bootstrap.";
-    };
-
-    runtimePackages = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = runtimePackages;
-      description = "Python package specs installed by the runtime bootstrap.";
-    };
   };
 
   commonEnvironment = {
@@ -313,17 +256,9 @@ let
       (builtins.readFile ./tinytalk-prestart.sh)
   );
 
-  requirementsFile = pkgs.writeText "tinytalk-runtime-requirements.txt" (
-    lib.concatStringsSep "\n" cfg.runtimePackages + "\n"
-  );
-
   runtimeEnvironment = {
-    TINYTALK_PYTHON_TARGET = pythonTarget;
-    TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
-    TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
-    TINYTALK_RUNTIME_REQUIREMENTS = toString requirementsFile;
-    TINYTALK_RUNTIME_OVERRIDE = if runtimeOverrideFile == null then "" else "${runtimeOverrideFile}";
-    PYTHONPATH = "${self.outPath}:${pythonTarget}";
+    TINYTALK_PROJECT_ROOT = "${self.outPath}";
+    TINYTALK_PYTHON_ENVIRONMENT = pythonEnvironment;
     LD_LIBRARY_PATH = lib.makeLibraryPath [
       pkgs.ffmpeg_8.lib
       pkgs.libsndfile
@@ -382,7 +317,7 @@ in
 
       serviceConfig = {
         ExecStartPre = prestart;
-        ExecStart = "${python}/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
+        ExecStart = "${pythonEnvironment}/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
         User = "tinytalk";
         Group = "tinytalk";
         PrivateTmp = true;
