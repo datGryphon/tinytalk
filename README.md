@@ -14,25 +14,32 @@ Supported backends:
 
 The flake exports `nixosModules.default`.
 
-## Python installation
+## Python environments
 
-The base `tinytalk` package intentionally does not install an ML backend. Install
-only the backend used by that environment:
+`pyproject.toml` and `uv.lock` are the source of truth for TinyTalk's Python
+runtime. The project pins the qualified Torch/Torchaudio/Transformers versions,
+the PyTorch CPU index, the NeuCodec fork, and backend package versions once.
+Development, CI, and the NixOS service all consume that same lock.
+
+From a source checkout, sync only the backend you need:
 
 ```bash
-pip install 'tinytalk[neutts]'
-pip install 'tinytalk[tinytauk]'
-pip install 'tinytalk[omnivoice]'
+uv sync --frozen --extra neutts
+uv sync --frozen --extra tinytauk
+uv sync --frozen --extra omnivoice
 ```
 
-From a source checkout, use the corresponding editable extra, for example
-`pip install -e '.[omnivoice]'` (add `test` when developing). Backend imports are
-lazy, so selecting a backend whose extra is not installed fails with an error
-naming the missing module and matching install command.
+For development, add the `test` extra. To validate coexistence of all three
+backends, select all three extras in the same sync.
 
-TinyTalk now targets Python 3.13 across the three development/runtime paths. The
-backend extras remain separate while Torch/Transformers convergence is being
-qualified; code isolation does not require permanent runtime-version isolation.
+The base `tinytalk` project remains backend-light. Backend imports are lazy, so
+selecting a backend whose extra is not installed fails with an actionable error.
+Plain `pip install 'tinytalk[backend]'` does not consume uv's project-level
+metadata overrides and is therefore not the qualified installation path while
+upstream NeuTTS/OmniVoice metadata still pins the older Torch runtime.
+
+TinyTalk targets Python 3.13 with Torch/Torchaudio 2.11 and Transformers 5.17
+across the qualified backend environments.
 
 > OmniVoice source code is Apache-2.0, but the published `k2-fsa/OmniVoice`
 > checkpoint has its own non-commercial model license. Check the model card
@@ -202,16 +209,18 @@ they are capacity-planning reference points, not runtime guarantees.
 
 ### NeuTTS CPU vs CUDA
 
-The default NeuTTS runtime installs `torch+cpu` from the PyTorch CPU wheel index.
-For CUDA, set `backboneDevice = "gpu"` and override `runtimeIndexUrl`,
-`runtimeExtraIndexUrls`, and `runtimePackages` to pull a CUDA-enabled
-`llama-cpp-python` wheel. The NeuCodec pipeline stays on CPU.
+The checked-in lock is the qualified CPU runtime and resolves Torch/Torchaudio
+from the PyTorch CPU index. `backboneDevice = "gpu"` still controls the NeuTTS
+GGUF backbone, but switching the Python runtime itself to CUDA now requires a
+separate lock/profile change rather than NixOS-only package overrides. The
+NeuCodec pipeline stays on CPU.
 
 ## Development
 
-All shells use Python 3.13 and the qualified Torch 2.11/Transformers 5.17
-baseline. They retain separate virtual environments for backend-aware tests; CI
-also checks that all three backends can be installed and tested together.
+All shells use Python 3.13 and run `uv sync --frozen` against the checked-in
+lock. They retain separate virtual environments for backend-aware tests; CI also
+checks that all three backends can be synced and tested together from the same
+locked dependency graph.
 
 NeuTTS/default environment:
 
