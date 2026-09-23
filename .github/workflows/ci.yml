@@ -24,16 +24,13 @@ jobs:
         include:
           - backend: neutts
             label: NeuTTS
-            override-file: nix/overrides/neutts.txt
-            pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
+             pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
           - backend: omnivoice
             label: OmniVoice
-            override-file: nix/overrides/omnivoice.txt
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
+             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
           - backend: tinytauk
             label: TinyTAuK
-            override-file: ''
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
+             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
 
     env:
       TINYTALK_BACKEND: ${{ matrix.backend }}
@@ -47,8 +44,7 @@ jobs:
         id: setup
         uses: ./.github/actions/setup-native
         with:
-          extras: ${{ matrix.backend }},test
-          override-file: ${{ matrix.override-file }}
+          extras: '["${{ matrix.backend }}","test"]'
 
       - name: Run backend tests and runtime contract
         uses: ./.github/actions/run-check
@@ -109,8 +105,7 @@ jobs:
         id: setup
         uses: ./.github/actions/setup-native
         with:
-          extras: neutts,omnivoice,tinytauk,test
-          override-file: nix/overrides/neutts.txt
+          extras: '["neutts","omnivoice","tinytauk","test"]'
 
       - name: Run NeuTTS tests and runtime contract
         uses: ./.github/actions/run-check
