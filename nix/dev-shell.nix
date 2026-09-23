@@ -9,31 +9,37 @@ let
     pkgs.zlib
   ];
 
-  mkBackendShell = { backend, venv, extraPackages ? [ ], override ? null }:
+  mkBackendShell = { backend, venv, extraPackages ? [ ] }:
     pkgs.mkShell {
       packages = [ python pkgs.uv pkgs.ffmpeg-headless ] ++ extraPackages;
 
       shellHook = ''
         export LD_LIBRARY_PATH="${libPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         export TINYTALK_BACKEND="${backend}"
-        export TINYTALK_PYTHON="${python}/bin/python"
-        export TINYTALK_VENV="${venv}"
-        export TINYTALK_OVERRIDE_FILE="${if override == null then "" else "${override}"}"
-        source ${./dev-shell-setup.sh}
+        export UV_PROJECT_ENVIRONMENT="$PWD/${venv}"
+
+        uv sync \
+          --frozen \
+          --python ${python}/bin/python \
+          --extra "${backend}" \
+          --extra test || return 1
+
+        source "$UV_PROJECT_ENVIRONMENT/bin/activate"
       '';
     };
+
+  neutts = mkBackendShell {
+    backend = "neutts";
+    venv = ".venv-neutts";
+  };
 in
 {
-  default = mkBackendShell {
-    backend = "neutts";
-    venv = ".venv";
-    override = ./overrides/neutts.txt;
-  };
+  default = neutts;
+  inherit neutts;
 
   omnivoice = mkBackendShell {
     backend = "omnivoice";
     venv = ".venv-omnivoice";
-    override = ./overrides/omnivoice.txt;
   };
 
   tinytauk = mkBackendShell {
