@@ -14,43 +14,33 @@ let
           services.tinytalk = { enable = true; inherit backend; } // options;
         }
       ];
-    }).config;
+    }).config.systemd.services.tinytalk;
 
-  neuConfig = evaluate "neutts" { };
-  omniConfig = evaluate "omnivoice" { };
-  aukConfig = evaluate "tinytauk" { tinytaukProfile = profile; };
+  neutts = evaluate "neutts" { };
+  omnivoice = evaluate "omnivoice" { };
+  tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
-  neutts = neuConfig.systemd.services.tinytalk.environment;
-  omnivoice = omniConfig.systemd.services.tinytalk.environment;
-  tinytauk = aukConfig.systemd.services.tinytalk.environment;
-
-  neuPackages = neuConfig.services.tinytalk.runtimePackages;
-  omniPackages = omniConfig.services.tinytalk.runtimePackages;
-  aukPackages = aukConfig.services.tinytalk.runtimePackages;
-
-  qualified = specs:
-    lib.elem "torch==2.11.0+cpu" specs
-    && lib.elem "torchaudio==2.11.0+cpu" specs
-    && lib.elem "transformers==5.17.0" specs;
+  usesLockedProject = service:
+    service.environment.TINYTALK_PROJECT_ROOT == "${self.outPath}"
+    && service.environment.TINYTALK_PYTHON_ENVIRONMENT == "/var/lib/tinytalk/python"
+    && lib.hasPrefix "/var/lib/tinytalk/python/bin/python " service.serviceConfig.ExecStart
+    && !(service.environment ? TINYTALK_RUNTIME_REQUIREMENTS)
+    && !(service.environment ? TINYTALK_RUNTIME_OVERRIDE)
+    && !(service.environment ? TINYTALK_PIP_EXTRA_INDEX_URLS);
 in
-assert lib.assertMsg (qualified neuPackages && qualified omniPackages && qualified aukPackages)
-  "TinyTalk NixOS module must deploy the qualified shared Torch/Transformers runtime";
 assert lib.assertMsg (
-  lib.any (lib.hasInfix "6954b1f877963e19177b43be1ef56b1818990d31") neuPackages
-  && !lib.any (lib.hasInfix "torchtune") neuPackages
-  && !lib.any (lib.hasInfix "torchao") neuPackages
-  && neuPackages != [ ]
-  && neutts.TINYTALK_RUNTIME_OVERRIDE != ""
-) "NeuTTS service must use the qualified NeuCodec fork and metadata override";
+  usesLockedProject neutts
+  && usesLockedProject omnivoice
+  && usesLockedProject tinytauk
+) "TinyTalk services must sync and execute the locked project environment";
 assert lib.assertMsg (
-  lib.elem "omnivoice==0.2.1" omniPackages
-  && omnivoice.TINYTALK_RUNTIME_OVERRIDE != ""
-) "OmniVoice service must use the qualified metadata override";
+  neutts.environment.TINYTALK_BACKEND == "neutts"
+  && omnivoice.environment.TINYTALK_BACKEND == "omnivoice"
+  && tinytauk.environment.TINYTALK_BACKEND == "tinytauk"
+) "Each service must forward its selected backend";
 assert lib.assertMsg (
-  lib.any (lib.hasInfix "/v0.2.0.tar.gz") aukPackages
-  && tinytauk.TINYTALK_TINYTAUK_PROFILE == "${profile}"
-  && tinytauk.TINYTALK_RUNTIME_OVERRIDE == ""
-  && lib.hasInfix "ffmpeg" tinytauk.LD_LIBRARY_PATH
-) "TinyTAuK service must use v0.2.0, forward the TOML profile, and provide FFmpeg libraries";
+  tinytauk.environment.TINYTALK_TINYTAUK_PROFILE == "${profile}"
+  && lib.hasInfix "ffmpeg" tinytauk.environment.LD_LIBRARY_PATH
+) "TinyTAuK service must forward its profile and provide FFmpeg libraries";
 
 pkgs.runCommand "tinytalk-nixos-module-check" { } "touch $out"
