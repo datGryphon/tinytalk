@@ -14,6 +14,12 @@ def test_loads_tinytauk_backend(monkeypatch):
     assert settings.backend == "tinytauk"
     assert settings.tinytauk_chars_per_second == 12.5
 
+    monkeypatch.setenv("TINYTALK_TINYTAUK_PROFILE", "/tmp/tinytauk.toml")
+    assert load_settings().tinytauk_profile == Path("/tmp/tinytauk.toml")
+
+    monkeypatch.setenv("TINYTALK_TINYTAUK_PROFILE", "")
+    assert load_settings().tinytauk_profile is None
+
 
 def test_loads_omnivoice_backend(monkeypatch):
     monkeypatch.setenv("TINYTALK_BACKEND", "omnivoice")
