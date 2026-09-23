@@ -14,8 +14,6 @@ dependencies = [
 [project.optional-dependencies]
 neutts = [
   "neutts[all]==1.4.1",
-  "torch==2.8.0",
-  "torchaudio==2.8.0",
   "librosa",
   "praat-parselmouth",
 ]
@@ -24,15 +22,29 @@ tinytauk = [
 ]
 omnivoice = [
   "omnivoice==0.2.1",
-  "torch==2.8.0",
-  "torchaudio==2.8.0",
-  "transformers>=5.3,<6",
 ]
 test = [
   "pytest",
   "httpx",
   "openai-whisper",
 ]
+
+[tool.uv]
+override-dependencies = [
+  "torch==2.11.0",
+  "torchaudio==2.11.0",
+  "transformers==5.17.0",
+  "neucodec @ https://github.com/datGryphon/neucodec/archive/6954b1f877963e19177b43be1ef56b1818990d31.tar.gz",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
 
 [tool.setuptools.packages.find]
 include = ["tinytalk*"]
