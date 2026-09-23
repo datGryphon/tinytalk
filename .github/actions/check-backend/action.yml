@@ -1,0 +1,40 @@
+name: Check TinyTalk backend
+description: Verify the qualified runtime and execute backend-aware tests in native Python or a Nix dev shell.
+
+inputs:
+  backend:
+    description: Backend under test (neutts, omnivoice, or tinytauk).
+    required: true
+  python-path:
+    description: Native Python interpreter; ignored when nix-shell is set.
+    required: false
+    default: python
+  nix-shell:
+    description: Optional Nix dev-shell output name (default, omnivoice, or tinytauk).
+    required: false
+    default: ''
+
+outputs:
+  checked-backend:
+    description: Backend successfully validated; only emitted after passing tests.
+    value: ${{ steps.verify.outputs.checked-backend }}
+  test-suite:
+    description: Pytest selectors that passed in this environment.
+    value: ${{ steps.verify.outputs.test-suite }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check qualified runtime and backend tests
+      id: verify
+      shell: bash
+      env:
+        BACKEND: ${{ inputs.backend }}
+        PYTHON_PATH: ${{ inputs.python-path }}
+        NIX_SHELL: ${{ inputs.nix-shell }}
+      run: |
+        if [[ -n "$NIX_SHELL" ]]; then
+          nix develop ".#$NIX_SHELL" -c python "$GITHUB_ACTION_PATH/check.py" "$BACKEND"
+        else
+          "$PYTHON_PATH" "$GITHUB_ACTION_PATH/check.py" "$BACKEND"
+        fi
