@@ -7,7 +7,13 @@
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
-      libPath = pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
+      # TorchCodec needs FFmpeg shared libraries, not just the ffmpeg executable.
+      libPath = pkgs.lib.makeLibraryPath [
+        pkgs.ffmpeg_8.lib
+        pkgs.libsndfile
+        pkgs.stdenv.cc.cc.lib
+        pkgs.zlib
+      ];
       mkDevShell = { python, venv, extras, backend, extraPackages ? [ ], override ? null }:
         pkgs.mkShell {
           packages = [ python pkgs.uv pkgs.ffmpeg-headless ] ++ extraPackages;
