@@ -99,6 +99,40 @@ def test_load_uses_models_and_warms_full_generation(monkeypatch):
     assert engine.sample_rate == 24_000
 
 
+def test_load_uses_tinytauk_profile(monkeypatch, tmp_path):
+    profile = tmp_path / "runtime.toml"
+    profile.write_text("[model]\nmodel_id = 'example/AuK'\n")
+    fake = FakeTinyTAuK()
+    fake.config.model = SimpleNamespace(model_id="example/AuK")
+    received = []
+
+    class FakeFactory:
+        @staticmethod
+        def from_config(path):
+            received.append(path)
+            return fake
+
+        @staticmethod
+        def from_pretrained(**_kwargs):
+            raise AssertionError("profile must override from_pretrained")
+
+    monkeypatch.setattr(backend_module, "TinyTAuK", FakeFactory)
+    engine = TinyTAuKEngine(
+        Settings(
+            backend="tinytauk",
+            tinytauk_profile=profile,
+            tinytauk_model="unused/default",
+        )
+    )
+
+    engine.load()
+
+    assert received == [profile]
+    assert engine.model_name == "example/AuK"
+    assert engine.loaded
+    assert fake.calls[0]["gen_seconds"] == pytest.approx(9.0)
+
+
 def test_instructions_use_canonical_auk_serialization():
     engine = _engine()
     engine.synthesize("hello world", instructions="Speak calmly")
