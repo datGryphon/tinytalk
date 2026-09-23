@@ -24,35 +24,31 @@ jobs:
         include:
           - backend: neutts
             label: NeuTTS
+            override-file: nix/overrides/neutts.txt
           - backend: omnivoice
             label: OmniVoice
+            override-file: nix/overrides/omnivoice.txt
           - backend: tinytauk
             label: TinyTAuK
+            override-file: ''
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Set up native backend
+        id: setup
+        uses: ./.github/actions/setup-native
         with:
-          version: "0.12.17"
-          enable-cache: false
+          extras: ${{ matrix.backend }},test
+          override-file: ${{ matrix.override-file }}
 
-      - name: Install system audio libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng libsndfile1
-
-      - name: Install Python and backend without Nix
-        run: bash .github/scripts/install-native.sh ${{ matrix.backend }}
-
-      - name: Verify runtime and run unit tests
-        env:
-          TINYTALK_BACKEND: ${{ matrix.backend }}
-        run: |
-          source .venv/bin/activate
-          bash .github/scripts/check-backend.sh
+      - name: Check backend
+        uses: ./.github/actions/check-backend
+        with:
+          backend: ${{ matrix.backend }}
+          python-path: ${{ steps.setup.outputs.python-path }}
 
   nix:
     name: Nix / ${{ matrix.label }}
@@ -79,12 +75,15 @@ jobs:
 
       - uses: cachix/install-nix-action@v31
 
-      - name: Check flake
+      - name: Check flake and NixOS module
         if: matrix.backend == 'neutts'
         run: nix flake check
 
-      - name: Verify runtime and run unit tests
-        run: nix develop .#${{ matrix.shell }} -c bash .github/scripts/check-backend.sh
+      - name: Check backend
+        uses: ./.github/actions/check-backend
+        with:
+          backend: ${{ matrix.backend }}
+          nix-shell: ${{ matrix.shell }}
 
   shared:
     name: Native Ubuntu / Shared runtime
@@ -96,22 +95,27 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Set up shared native runtime
+        id: setup
+        uses: ./.github/actions/setup-native
         with:
-          version: "0.12.17"
-          enable-cache: false
+          extras: neutts,omnivoice,tinytauk,test
+          override-file: nix/overrides/neutts.txt
 
-      - name: Install system audio libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng libsndfile1
+      - name: Check NeuTTS in shared runtime
+        uses: ./.github/actions/check-backend
+        with:
+          backend: neutts
+          python-path: ${{ steps.setup.outputs.python-path }}
 
-      - name: Resolve all three backends in one environment
-        run: bash .github/scripts/install-native.sh shared
+      - name: Check OmniVoice in shared runtime
+        uses: ./.github/actions/check-backend
+        with:
+          backend: omnivoice
+          python-path: ${{ steps.setup.outputs.python-path }}
 
-      - name: Run backend checks in the shared environment
-        run: |
-          source .venv/bin/activate
-          for backend in neutts omnivoice tinytauk; do
-            TINYTALK_BACKEND="$backend" bash .github/scripts/check-backend.sh
-          done
+      - name: Check TinyTAuK in shared runtime
+        uses: ./.github/actions/check-backend
+        with:
+          backend: tinytauk
+          python-path: ${{ steps.setup.outputs.python-path }}
