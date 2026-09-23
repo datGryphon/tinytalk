@@ -1,0 +1,33 @@
+name: Run check
+description: Run any explicitly supplied command in native Ubuntu or a Nix dev shell.
+
+inputs:
+  executable:
+    description: Executable (e.g. the setup action's python-path, python, ruff).
+    required: true
+  arguments:
+    description: JSON array of argument strings; empty array for no arguments.
+    required: false
+    default: '[]'
+  nix-shell:
+    description: Optional Nix dev-shell name; empty runs directly on the host.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Execute check
+      shell: bash
+      env:
+        EXECUTABLE: ${{ inputs.executable }}
+        ARGUMENTS: ${{ inputs.arguments }}
+        NIX_SHELL: ${{ inputs.nix-shell }}
+      run: |
+        jq -e 'type == "array" and all(.[]; type == "string")' <<< "$ARGUMENTS" >/dev/null
+        mapfile -t args < <(jq -r '.[]' <<< "$ARGUMENTS")
+        if [[ -n "$NIX_SHELL" ]]; then
+          nix develop ".#$NIX_SHELL" -c "$EXECUTABLE" "${args[@]}"
+        else
+          "$EXECUTABLE" "${args[@]}"
+        fi
