@@ -44,10 +44,14 @@ class TinyTAuKEngine:
         if self.settings.tinytauk_chars_per_second <= 0:
             raise ValueError("TINYTALK_TINYTAUK_CHARS_PER_SECOND must be positive")
 
-        self.tts = TinyTAuK.from_pretrained(
-            model_id=self.settings.tinytauk_model,
-            qwen_model_id=self.settings.tinytauk_qwen_model,
-        )
+        if self.settings.tinytauk_profile is not None:
+            self.tts = TinyTAuK.from_config(self.settings.tinytauk_profile)
+            self.model_name = self.tts.config.model.model_id
+        else:
+            self.tts = TinyTAuK.from_pretrained(
+                model_id=self.settings.tinytauk_model,
+                qwen_model_id=self.settings.tinytauk_qwen_model,
+            )
 
         # TinyTAuK's VAE compiles lazily. Exercise the same full-generation path
         # used for real requests before the service reports healthy.
