@@ -48,7 +48,7 @@ assert lib.assertMsg (
 ) "OmniVoice service must use the qualified metadata override";
 assert lib.assertMsg (
   lib.any (lib.hasInfix "/v0.2.0.tar.gz") aukPackages
-  && tinytauk.TINYTALK_TINYTAUK_PROFILE == toString profile
+  && tinytauk.TINYTALK_TINYTAUK_PROFILE == "${profile}"
   && tinytauk.TINYTALK_RUNTIME_OVERRIDE == ""
   && lib.hasInfix "ffmpeg" tinytauk.LD_LIBRARY_PATH
 ) "TinyTAuK service must use v0.2.0, forward the TOML profile, and provide FFmpeg libraries";
