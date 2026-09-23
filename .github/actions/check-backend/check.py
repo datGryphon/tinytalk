@@ -71,6 +71,8 @@ if __name__ == "__main__":
 
     backend = sys.argv[1]
     main(backend)
+    # Server configuration is read at import time during pytest collection.
+    os.environ["TINYTALK_BACKEND"] = backend
     suite = TEST_SUITES[backend]
     result = pytest.main(list(suite))
     if result != pytest.ExitCode.OK:
