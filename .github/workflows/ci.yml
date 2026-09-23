@@ -14,6 +14,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lockfile:
+    name: Generate uv.lock
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.12.17'
+          enable-cache: false
+
+      - name: Resolve project
+        run: |
+          uv lock
+          echo 'TINYTALK_UV_LOCK_BEGIN'
+          base64 -w0 uv.lock
+          echo
+          echo 'TINYTALK_UV_LOCK_END'
+
   native:
     name: Native Ubuntu / ${{ matrix.label }}
     runs-on: ubuntu-24.04
@@ -24,13 +45,13 @@ jobs:
         include:
           - backend: neutts
             label: NeuTTS
-             pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
+            pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
           - backend: omnivoice
             label: OmniVoice
-             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
           - backend: tinytauk
             label: TinyTAuK
-             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
 
     env:
       TINYTALK_BACKEND: ${{ matrix.backend }}
@@ -62,7 +83,7 @@ jobs:
         include:
           - backend: neutts
             label: NeuTTS
-            shell: default
+            shell: neutts
             pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
           - backend: omnivoice
             label: OmniVoice
@@ -72,6 +93,9 @@ jobs:
             label: TinyTAuK
             shell: tinytauk
             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
+
+    env:
+      TINYTALK_BACKEND: ${{ matrix.backend }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
