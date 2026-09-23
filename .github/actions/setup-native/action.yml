@@ -1,0 +1,67 @@
+name: Set up native Python backend
+description: Install the selected TinyTalk extras into one Ubuntu Python virtual environment.
+
+inputs:
+  extras:
+    description: Comma-separated TinyTalk extras without brackets (e.g. neutts,test).
+    required: true
+  override-file:
+    description: Optional uv override file; empty means no override.
+    required: false
+    default: ''
+  python-version:
+    description: Python version used for the environment.
+    required: false
+    default: '3.13'
+
+outputs:
+  python-path:
+    description: Absolute path to the installed Python interpreter.
+    value: ${{ steps.paths.outputs.python-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      with:
+        version: '0.12.17'
+        enable-cache: false
+
+    - name: Install system audio dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng libsndfile1
+
+    - name: Create Python environment
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: |
+        uv python install "$PYTHON_VERSION"
+        uv venv --python "$PYTHON_VERSION" .venv
+
+    - name: Install backend extras
+      shell: bash
+      env:
+        EXTRAS: ${{ inputs.extras }}
+        OVERRIDE_FILE: ${{ inputs.override-file }}
+      run: |
+        override_args=()
+        if [[ -n "$OVERRIDE_FILE" ]]; then
+          [[ -f "$OVERRIDE_FILE" ]] || { echo "Missing override: $OVERRIDE_FILE" >&2; exit 1; }
+          override_args=(--override "$OVERRIDE_FILE")
+        fi
+        uv pip install \
+          --python .venv/bin/python \
+          --index-url https://pypi.org/simple \
+          --extra-index-url https://download.pytorch.org/whl/cpu \
+          --index-strategy unsafe-best-match \
+          "${override_args[@]}" \
+          -e ".[${EXTRAS}]"
+
+    - name: Publish interpreter path
+      id: paths
+      shell: bash
+      run: echo "python-path=$GITHUB_WORKSPACE/.venv/bin/python" >> "$GITHUB_OUTPUT"
