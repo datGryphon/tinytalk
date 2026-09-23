@@ -26,6 +26,8 @@ jobs:
             label: NeuTTS
           - backend: omnivoice
             label: OmniVoice
+          - backend: tinytauk
+            label: TinyTAuK
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,12 +50,16 @@ jobs:
         run: |
           uv python install 3.13
           uv venv --python 3.13 .venv
+          override=()
+          if [[ -f "nix/overrides/${BACKEND}.txt" ]]; then
+            override=(--override "nix/overrides/${BACKEND}.txt")
+          fi
           uv pip install \
             --python .venv/bin/python \
             --index-url https://pypi.org/simple \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             --index-strategy unsafe-best-match \
-            --override "nix/overrides/${BACKEND}.txt" \
+            "${override[@]}" \
             -e ".[${BACKEND},test]"
 
       - name: Verify runtime and run unit tests
@@ -77,6 +83,9 @@ jobs:
           - backend: omnivoice
             label: OmniVoice
             shell: omnivoice
+          - backend: tinytauk
+            label: TinyTAuK
+            shell: tinytauk
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,8 +95,59 @@ jobs:
       - uses: cachix/install-nix-action@v31
 
       - name: Check flake
-        if: matrix.shell == 'default'
+        if: matrix.backend == 'neutts'
         run: nix flake check
 
       - name: Verify runtime and run unit tests
         run: nix develop .#${{ matrix.shell }} -c bash scripts/ci-smoke.sh
+
+  shared:
+    name: Native Ubuntu / Shared runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.17"
+          enable-cache: false
+
+      - name: Install system audio libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng libsndfile1
+
+      - name: Resolve all three backends in one environment
+        run: |
+          uv python install 3.13
+          uv venv --python 3.13 .venv
+          # NeuTTS's override also selects the validated NeuCodec fork.
+          uv pip install \
+            --python .venv/bin/python \
+            --index-url https://pypi.org/simple \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            --index-strategy unsafe-best-match \
+            --override nix/overrides/neutts.txt \
+            -e '.[neutts,omnivoice,tinytauk,test]'
+
+      - name: Import all backend adapters
+        run: |
+          source .venv/bin/activate
+          python - <<'PY'
+          from importlib import import_module
+
+          for backend in ("neutts", "omnivoice", "tinytauk"):
+              module = import_module(f"tinytalk.backends.{backend}")
+              print(f"{backend}: {module.__file__}")
+          PY
+
+      - name: Run backend checks in the shared environment
+        run: |
+          source .venv/bin/activate
+          for backend in neutts omnivoice tinytauk; do
+            TINYTALK_BACKEND="$backend" bash scripts/ci-smoke.sh
+          done
