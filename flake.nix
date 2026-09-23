@@ -11,5 +11,8 @@
     {
       nixosModules.default = import ./nix/module.nix { inherit self; };
       devShells.${system} = import ./nix/dev-shell.nix { inherit pkgs; };
+      checks.${system}.nixos-module = import ./nix/check-module.nix {
+        inherit self nixpkgs pkgs system;
+      };
     };
 }
