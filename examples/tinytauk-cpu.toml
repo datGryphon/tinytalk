@@ -1,0 +1,20 @@
+# TinyTAuK v0.2 CPU profile. Dtypes control precision, not INT4/INT8 quantization.
+[model]
+model_id = "tencent/AuK-Flash"
+qwen_model_id = "Qwen/Qwen2.5-Omni-3B"
+
+[conditioner]
+device = "cpu"
+dtype = "bf16"
+
+[generator]
+device = "cpu"
+dtype = "fp32"
+
+[vae]
+device = "cpu"
+dtype = "fp32"
+
+[runtime]
+seed = 1234
+num_threads = 4
