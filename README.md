@@ -107,14 +107,27 @@ services.tinytalk = {
 };
 ```
 
-TinyTAuK:
+TinyTAuK with the released v0.2 runtime profile:
 
 ```nix
 services.tinytalk = {
   enable = true;
   backend = "tinytauk";
+  tinytaukProfile = ./tinytauk-cpu.toml;
 };
 ```
+
+Copy [the example CPU profile](examples/tinytauk-cpu.toml) into your NixOS
+configuration and adjust its component `device`/`dtype` values, seed, and
+thread count. Without `tinytaukProfile`, TinyTalk uses the upstream
+`TinyTAuK.from_pretrained()` CPU defaults and the existing
+`tinytaukModel`/`tinytaukQwenModel` options. With a profile, its `[model]`
+table supplies both model IDs; those two NixOS options are not used.
+
+TinyTAuK v0.2 exposes `fp32`, `bf16`, and `fp16` component precision.
+It does **not** expose an INT4/INT8 quantization selector. TinyTalk passes
+the profile to TinyTAuK without inventing an unsupported quantization option.
+Without NixOS, set `TINYTALK_TINYTAUK_PROFILE=/path/to/profile.toml`.
 
 OmniVoice auto/design mode:
 
@@ -158,7 +171,8 @@ Key options:
 | `refCodes` | `/var/lib/tinytalk/ref_codes.pt` | NeuTTS reference codes |
 | `refText` | `/var/lib/tinytalk/ref_text.txt` | NeuTTS reference transcript |
 | `tinytaukModel` | `tencent/AuK-Flash` | TinyTAuK model repository |
-| `tinytaukQwenModel` | `Qwen/Qwen2.5-Omni-3B` | TinyTAuK conditioner |
+| `tinytaukQwenModel` | `Qwen/Qwen2.5-Omni-3B` | TinyTAuK conditioner (without profile) |
+| `tinytaukProfile` | `null` | Optional TinyTAuK v0.2 TOML runtime profile |
 | `tinytaukCharsPerSecond` | `14.0` | TinyTAuK duration estimate |
 | `omnivoiceModel` | `k2-fsa/OmniVoice` | OmniVoice checkpoint |
 | `omnivoiceDevice` | `cpu` | Device map passed upstream |
@@ -169,16 +183,17 @@ Key options:
 NeuTTS reference files are required only for NeuTTS. Generate `ref_codes.pt` from
 a WAV with `scripts/encode_reference.py`.
 
-TinyTAuK downloads the official AuK-Flash/Qwen checkpoints through Hugging Face
-on first startup. Its VAE compiles lazily, so TinyTalk performs one disposable
-warmup generation before `/health` reports ready.
+TinyTAuK v0.2.0 downloads the configured AuK-Flash/Qwen checkpoints through
+Hugging Face on first startup. TinyTalk performs one disposable warmup generation
+before `/health` reports ready.
 
 OmniVoice downloads its checkpoint on first startup. CPU is the conservative
 default for TinyTalk; other upstream-supported device strings can be supplied via
 `omnivoiceDevice` and should be qualified on the target host before deployment.
 
-A September 2026 qualification run on one CPU host used Python 3.13.13,
-OmniVoice 0.2.1, Torch 2.8.0+cpu, and Transformers 5.17.0. Auto/design generation
+An earlier September 2026 qualification run on one CPU host used Python 3.13.13,
+OmniVoice 0.2.1, Torch 2.8.0+cpu, and Transformers 5.17.0. The current qualified
+development/CI baseline instead uses Torch/Torchaudio 2.11.0 and Transformers 5.17.0. Auto/design generation
 used approximately 2.6-2.8 GiB peak process RSS and took roughly 35-53 seconds
 for short samples. Cloned generation used approximately 5.1 GiB peak process RSS
 and took roughly 100 seconds for similar short samples. Clone-prompt construction
@@ -194,8 +209,9 @@ For CUDA, set `backboneDevice = "gpu"` and override `runtimeIndexUrl`,
 
 ## Development
 
-All shells use Python 3.13, with separate virtual environments while backend
-Torch/Transformers compatibility is being validated.
+All shells use Python 3.13 and the qualified Torch 2.11/Transformers 5.17
+baseline. They retain separate virtual environments for backend-aware tests; CI
+also checks that all three backends can be installed and tested together.
 
 NeuTTS/default environment:
 
