@@ -4,7 +4,7 @@ let
   lib = pkgs.lib;
   profile = ../examples/tinytauk-cpu.toml;
 
-  service = backend: options:
+  evaluate = backend: options:
     (nixpkgs.lib.nixosSystem {
       inherit system;
       modules = [
@@ -14,27 +14,19 @@ let
           services.tinytalk = { enable = true; inherit backend; } // options;
         }
       ];
-    }).config.systemd.services.tinytalk.environment;
+    }).config;
 
-  packages = backend: options:
-    (nixpkgs.lib.nixosSystem {
-      inherit system;
-      modules = [
-        self.nixosModules.default
-        {
-          system.stateVersion = "25.11";
-          services.tinytalk = { enable = true; inherit backend; } // options;
-        }
-      ];
-    }).config.services.tinytalk.runtimePackages;
+  neuConfig = evaluate "neutts" { };
+  omniConfig = evaluate "omnivoice" { };
+  aukConfig = evaluate "tinytauk" { tinytaukProfile = profile; };
 
-  neutts = service "neutts" { };
-  omnivoice = service "omnivoice" { };
-  tinytauk = service "tinytauk" { tinytaukProfile = profile; };
+  neutts = neuConfig.systemd.services.tinytalk.environment;
+  omnivoice = omniConfig.systemd.services.tinytalk.environment;
+  tinytauk = aukConfig.systemd.services.tinytalk.environment;
 
-  neuPackages = packages "neutts" { };
-  omniPackages = packages "omnivoice" { };
-  aukPackages = packages "tinytauk" { tinytaukProfile = profile; };
+  neuPackages = neuConfig.services.tinytalk.runtimePackages;
+  omniPackages = omniConfig.services.tinytalk.runtimePackages;
+  aukPackages = aukConfig.services.tinytalk.runtimePackages;
 
   qualified = specs:
     lib.elem "torch==2.11.0+cpu" specs
