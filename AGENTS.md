@@ -19,8 +19,9 @@ as `nixosModules.default`.
 
 ## Setup
 
-All current development shells target Python 3.13. Backend extras remain
-separate while Torch/Transformers compatibility is qualified.
+All current development shells target Python 3.13. `pyproject.toml` and
+`uv.lock` are the canonical Python runtime definition; CI, development shells,
+and the NixOS service all consume that locked environment.
 
 NeuTTS/default environment:
 
@@ -177,10 +178,11 @@ generation uses upstream auto voice. Shared WER/CER evaluates every candidate,
 while retries raise OmniVoice `class_temperature` from the greedy first-pass
 default.
 
-The qualified CPU stack is Python 3.13.13, OmniVoice 0.2.1, Torch 2.8.0+cpu,
-and Transformers 5.17.0. One manual sweep measured approximately 2.6-2.8 GiB
-peak process RSS for auto/design and approximately 5.1 GiB for cloned generation.
-Treat those figures as host-specific capacity guidance rather than guarantees.
+The current qualified shared CPU runtime is Python 3.13, Torch/Torchaudio 2.11,
+and Transformers 5.17. An earlier OmniVoice qualification sweep used Torch
+2.8.0+cpu and measured approximately 2.6-2.8 GiB peak process RSS for auto/design
+and approximately 5.1 GiB for cloned generation. Treat those figures as
+host-specific historical capacity guidance rather than guarantees.
 
 Keep pronunciation markup, LoRA, batch inference, request-level reference-audio
 uploads, and accelerator-specific optimization out of the generic TinyTalk API
@@ -235,12 +237,8 @@ OmniVoice:
 
 ## Deploy
 
-The NixOS module bootstraps the selected backend's Python packages under
-`/var/lib/tinytalk/python` using Python 3.13. The requirements marker includes
-the backend, so switching backend forces a clean runtime reinstall. Backend
-package lists remain separate until a common Torch/Transformers stack is fully
-qualified.
-
-If a host overrides `runtimePackages`, it owns the complete selected backend
-runtime set. Keep TinyTAuK pinned to a released tag rather than `main` in
-production deployment configuration.
+The NixOS module syncs the selected backend from the checked-in `uv.lock` into
+`/var/lib/tinytalk/python` using Python 3.13. Backend package versions, the
+PyTorch CPU index, and compatibility overrides belong in `pyproject.toml` and
+`uv.lock`, not in host-specific Nix package lists. Keep TinyTAuK pinned to a
+released tag rather than `main` in production deployment configuration.
