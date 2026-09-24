@@ -4,4 +4,4 @@ __pycache__/
 .venv/
 .venv-tinytauk/
 *.egg-info/
-test_artifacts/
+test_artifacts/\n.venv-neutts/\n.venv-omnivoice/\n
