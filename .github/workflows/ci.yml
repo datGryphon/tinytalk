@@ -126,6 +126,12 @@ jobs:
         with:
           extras: '["neutts","omnivoice","tinytauk","test"]'
 
+      - name: Verify installed TinyTalk package outside checkout import path
+        uses: ./.github/actions/run-check
+        with:
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: '["-I","-c","import importlib.metadata as m, tinytalk; assert m.version(\"tinytalk\") == tinytalk.__version__"]'
+
       - name: Run NeuTTS tests and runtime contract
         uses: ./.github/actions/run-check
         env:
