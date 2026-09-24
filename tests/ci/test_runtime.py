@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+import tinytalk
+
 
 PROJECT = tomllib.loads(Path("pyproject.toml").read_text())
 BACKEND = os.environ["TINYTALK_BACKEND"]
@@ -52,6 +54,10 @@ def _check_requirement(requirement: str, *, required: bool) -> None:
             actual_url,
             wanted_url,
         )
+
+
+def test_tinytalk_distribution_matches_runtime_version():
+    assert metadata.version("tinytalk") == tinytalk.__version__
 
 
 def test_python_version():
