@@ -28,7 +28,9 @@ jobs:
           enable-cache: false
 
       - name: Verify lockfile is current
-        run: uv lock --check
+        run: |
+          uv lock
+          git diff --exit-code -- uv.lock
 
   native:
     name: Native Ubuntu / ${{ matrix.label }}
