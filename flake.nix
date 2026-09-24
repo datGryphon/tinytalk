@@ -7,46 +7,12 @@
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
-      libPath = pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
-      mkDevShell = { python, venv, extras, backend, extraPackages ? [ ] }:
-        pkgs.mkShell {
-          packages = [ python pkgs.uv pkgs.ffmpeg-headless ] ++ extraPackages;
-          shellHook = ''
-            export LD_LIBRARY_PATH="${libPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-            export TINYTALK_BACKEND="${backend}"
-            if [ ! -d "${venv}" ]; then
-              uv venv "${venv}" --python ${python}/bin/python --python-preference only-system
-            fi
-            uv pip install \
-              --python "${venv}/bin/python" \
-              --index-url https://pypi.org/simple \
-              --extra-index-url https://download.pytorch.org/whl/cpu \
-              --index-strategy unsafe-best-match \
-              -e '.[${extras}]'
-            source "${venv}/bin/activate"
-          '';
-        };
     in
     {
       nixosModules.default = import ./nix/module.nix { inherit self; };
-
-      devShells.${system} = {
-        default = mkDevShell {
-          python = pkgs.python312;
-          venv = ".venv";
-          extras = "neutts,test";
-          backend = "neutts";
-        };
-
-        tinytauk = mkDevShell {
-          python = pkgs.python313;
-          venv = ".venv-tinytauk";
-          extras = "tinytauk,test";
-          backend = "tinytauk";
-          # TinyTAuK's released CPU profile compiles the VAE decoder lazily
-          # with TorchInductor, which invokes a native compiler on first use.
-          extraPackages = [ pkgs.gcc pkgs.pkg-config ];
-        };
+      devShells.${system} = import ./nix/dev-shell.nix { inherit pkgs; };
+      checks.${system}.nixos-module = import ./nix/check-module.nix {
+        inherit self nixpkgs pkgs system;
       };
     };
 }

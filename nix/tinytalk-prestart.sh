@@ -1,35 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PYTHON_TARGET="${TINYTALK_PYTHON_TARGET:?}"
-MARKER="$PYTHON_TARGET/.spec"
-INDEX_STRATEGY="unsafe-best-match"
-SPEC="v3|${TINYTALK_BACKEND:-neutts}|$INDEX_STRATEGY|${TINYTALK_PIP_INDEX_URL:-}|${TINYTALK_PIP_EXTRA_INDEX_URLS:-}|${TINYTALK_RUNTIME_REQUIREMENTS:?}"
+backend="${TINYTALK_BACKEND:-neutts}"
 
-if [ "${TINYTALK_BACKEND:-neutts}" = "neutts" ]; then
+if [ "$backend" = "neutts" ]; then
   for path in "${TINYTALK_REF_CODES:?}" "${TINYTALK_REF_TEXT:?}"; do
     [ -r "$path" ] || { echo "tinytalk: unreadable: $path" >&2; exit 1; }
   done
 fi
 
-if [ "$(cat "$MARKER" 2>/dev/null)" = "$SPEC" ]; then
-  exit 0
+if [ "$backend" = "omnivoice" ]; then
+  ref_audio="${TINYTALK_OMNIVOICE_REF_AUDIO:-}"
+  ref_text="${TINYTALK_OMNIVOICE_REF_TEXT:-}"
+  if [ -n "$ref_audio" ] || [ -n "$ref_text" ]; then
+    [ -n "$ref_audio" ] && [ -n "$ref_text" ] || {
+      echo "tinytalk: OmniVoice reference audio and text must be configured together" >&2
+      exit 1
+    }
+    for path in "$ref_audio" "$ref_text"; do
+      [ -r "$path" ] || { echo "tinytalk: unreadable: $path" >&2; exit 1; }
+    done
+  fi
 fi
 
-rm -rf "$PYTHON_TARGET"
-mkdir -p "$PYTHON_TARGET"
+if [ "$backend" = "tinytauk" ] && [ -n "${TINYTALK_TINYTAUK_PROFILE:-}" ]; then
+  [ -r "$TINYTALK_TINYTAUK_PROFILE" ] || {
+    echo "tinytalk: unreadable TinyTAuK profile: $TINYTALK_TINYTAUK_PROFILE" >&2
+    exit 1
+  }
+fi
 
-EXTRA=()
-for url in ${TINYTALK_PIP_EXTRA_INDEX_URLS:-}; do
-  EXTRA+=(--extra-index-url "$url")
-done
+export UV_PROJECT_ENVIRONMENT="${TINYTALK_PYTHON_ENVIRONMENT:?}"
 
-@uv@/bin/uv pip install \
+@uv@/bin/uv sync \
+  --project "${TINYTALK_PROJECT_ROOT:?}" \
+  --frozen \
+  --no-dev \
   --python @python@/bin/python \
-  --target "$PYTHON_TARGET" \
-  --index-strategy "$INDEX_STRATEGY" \
-  ${TINYTALK_PIP_INDEX_URL:+--index-url "$TINYTALK_PIP_INDEX_URL"} \
-  ${EXTRA[@]+"${EXTRA[@]}"} \
-  -r "$TINYTALK_RUNTIME_REQUIREMENTS"
-
-printf '%s' "$SPEC" > "$MARKER"
+  --extra "$backend"

@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to coding agents working in this repository.
 
@@ -10,12 +10,17 @@ surface. Synthesis is provided by one backend per service instance:
 
 - `neutts`: reference-voice NeuTTS/GGUF path;
 - `tinytauk`: instruction-controlled AuK-Flash through the separately maintained
-  TinyTAuK runtime.
+  TinyTAuK runtime;
+- `omnivoice`: multilingual auto voice, constrained attribute-based voice design,
+  and optional reference-audio cloning through k2-fsa/OmniVoice.
 
 The main API is `POST /v1/audio/speech`. The repository exports a NixOS module
 as `nixosModules.default`.
 
 ## Setup
+
+All current development shells target Python 3.13. Backend extras remain
+separate while Torch/Transformers compatibility is qualified.
 
 NeuTTS/default environment:
 
@@ -31,10 +36,16 @@ nix develop .#tinytauk
 pytest
 ```
 
-The shells intentionally use separate virtual environments. TinyTAuK requires
-Python 3.13 / Torch 2.7.1 while current NeuTTS uses a newer Torch/Transformers
-stack. Do not try to solve this by co-installing both ML backends into one
-environment.
+OmniVoice environment:
+
+```bash
+nix develop .#omnivoice
+pytest tests/test_quality.py tests/test_backend_api.py tests/test_config.py tests/test_omnivoice_backend.py
+```
+
+Do not assume separate virtual environments are a permanent architecture
+requirement. Keep backend code and optional dependencies isolated, but prefer a
+common Python/Torch/Transformers stack when real validation proves it works.
 
 ## Conventions
 
@@ -42,20 +53,20 @@ Keep the project simple and direct. Do not add speculative abstractions or
 feature flags unrelated to real backend differences.
 
 - Runtime dependencies shared by every backend stay in `[project].dependencies`.
-  Backend-specific ML stacks belong in the `neutts` and `tinytauk` extras.
-- Imports stay at module scope except in `engine.create_engine()`. That factory
-  intentionally imports only the selected backend because the backend dependency
-  stacks are mutually incompatible.
-- A running TinyTalk service owns exactly one synthesis backend. If two backends
-  are needed simultaneously, run two service instances rather than combining
-  their Python environments.
+  Backend-specific ML stacks belong in the `neutts`, `tinytauk`, and `omnivoice`
+  extras.
+- Backend implementations remain separate modules even when their dependency
+  versions converge. Environment alignment and code ownership are different
+  concerns.
+- Imports are selected lazily by `engine.create_engine()` so a service only
+  requires its selected backend extra.
+- A running TinyTalk service owns exactly one synthesis backend.
 - `server.py` owns request validation and the process-level async inference lock.
   Backend engines expose `load()`, `synthesize()`, `loaded`, and `model_name`.
 - Long input chunking stays in `chunking.py`; backend implementations should not
   invent competing chunkers.
 - Shared correctness evaluation stays in `quality.py`. Backend-specific retry
-  policy stays with the backend because NeuTTS and TinyTAuK have different
-  controls and failure modes.
+  policy stays with each backend because their controls and failure modes differ.
 - Audio stays float `[-1, 1]` through the pipeline until final WAV/codec encoding.
 - NeuTTS tuning behavior stays in `backends/neutts.py`: repeat-penalty rerolls,
   shared quality evaluation, loudness normalization, and F0 boundary smoothing.
@@ -64,29 +75,41 @@ feature flags unrelated to real backend differences.
   TinyTalk adapter should only compose AuK instructions, estimate target duration,
   call TinyTAuK, apply its local quality/retry policy, and perform minimal
   stitching-safe post-processing.
-- Do not apply NeuTTS loudness or F0 normalization to TinyTAuK output. AuK uses
-  natural-language instructions for expressive pitch/loudness/prosody, and those
-  transforms would erase intended behavior.
+- Do not apply NeuTTS loudness or F0 normalization to TinyTAuK or OmniVoice output.
 - TinyTAuK `instructions` are composed into AuK's canonical Instruct-TTS format.
-  `speed` adjusts TinyTalk's target-duration estimate. `voice` remains ignored
-  until TinyTAuK implements reference-audio generation.
+  `speed` adjusts TinyTalk's target-duration estimate.
 - TinyTAuK uses a disposable generation during `load()` so its lazy VAE compile
   finishes before `/health` reports ready.
-- Do not silently change tuned NeuTTS values or the TinyTAuK duration baseline.
-  Changes require an audio/quality check.
+- OmniVoice maps request `instructions` directly to upstream `instruct` and
+  request `speed` directly to upstream `speed`.
+- OmniVoice `instructions` are comma-separated upstream attribute tags, not
+  freeform prose. Keep examples within the fixed gender, age, pitch, whisper,
+  accent, and Chinese-dialect vocabularies. Unsupported or mutually exclusive
+  values should remain visible as upstream validation errors.
+- OmniVoice mode selection is local policy: request instructions select voice
+  design; otherwise a configured cached clone prompt selects cloning; otherwise
+  the backend uses auto voice.
+- OmniVoice configured cloning requires both reference audio and a transcript
+  file. Build the reusable clone prompt once during `load()`.
+- OmniVoice first-pass generation keeps upstream greedy class sampling. Quality
+  retries increase `class_temperature` locally to introduce controlled variation.
+- Do not silently change tuned NeuTTS values, TinyTAuK duration behavior, or
+  OmniVoice retry policy without an audio/quality check.
 - Don't commit unless asked.
 
 ## Commands
 
 - NeuTTS unit tests: `nix develop -c pytest`
 - TinyTAuK unit tests: `nix develop .#tinytauk -c pytest`
+- OmniVoice focused tests: `nix develop .#omnivoice -c pytest tests/test_quality.py tests/test_backend_api.py tests/test_config.py tests/test_omnivoice_backend.py`
 - NeuTTS real integration: `TINYTALK_RUN_INTEGRATION=1 pytest tests/integration/test_real_speech.py`
 - TinyTAuK real integration: `TINYTALK_RUN_TINYTAUK_INTEGRATION=1 pytest tests/integration/test_tinytauk_real_speech.py`
+- OmniVoice real integration: `TINYTALK_RUN_OMNIVOICE_INTEGRATION=1 pytest tests/integration/test_omnivoice_real_speech.py`
 - Start server: `uvicorn tinytalk.server:app`
 - Build/evaluate flake: `nix flake check` and `nix eval .#nixosModules.default`
 
-Set `TINYTALK_WER_ENDPOINT` during the real NeuTTS integration run when the
-shared live WER/CER transcription path also needs validation.
+Set `TINYTALK_WER_ENDPOINT` during real integration runs when the shared live
+WER/CER transcription path also needs validation.
 
 ## Architecture
 
@@ -100,6 +123,7 @@ tinytalk/
     neutts.py               NeuTTS load/generate/reroll policy
     neutts_audio.py         NeuTTS-only RMS/F0 audio transforms
     tinytauk.py             TinyTAuK adapter and AuK instruction/duration policy
+    omnivoice.py            OmniVoice load/mode/clone/retry policy
   config.py                 environment-backed Settings
   chunking.py               sentence/phrase/word chunking
   audio.py                  shared WAV/codec and minimal splice-safe helpers
@@ -130,31 +154,37 @@ POST /v1/audio/speech
 
 ### NeuTTS backend
 
-The existing NeuTTS backend keeps its current behavior: reference codes/text,
-sampling overrides, per-chunk repeat-penalty retries, shared quality scoring,
+The NeuTTS backend keeps its current behavior: reference codes/text, sampling
+overrides, per-chunk repeat-penalty retries, shared quality scoring,
 trim/RMS/peak/edge cleanup, F0 boundary smoothing, and inter-chunk silence.
-
-NeuTTS limitations belong upstream unless TinyTalk orchestration can address them
-without forking NeuTTS.
 
 ### TinyTAuK backend
 
 TinyTAuK is a library/CLI, not a server. TinyTalk is the serving/orchestration
-layer. The adapter:
+layer. Keep model architecture, quantization, checkpoint loading, Qwen
+conditioning, and VAE compilation code in TinyTAuK.
 
-1. loads one long-lived `TinyTAuK.from_pretrained()` instance;
-2. performs one disposable warmup generation;
-3. chunks text with TinyTalk's existing chunker;
-4. estimates generation duration from characters/second and request `speed`;
-5. serializes optional request `instructions` with AuK's canonical Instruct-TTS
-   template;
-6. uses shared WER/CER and prompt-leak scoring for correctness checks;
-7. rerolls with deterministic-but-distinct seeds and adjusts duration for
-   insertion/deletion-heavy failures;
-8. trims splice-edge silence, peak-limits, edge-fades, and concatenates.
+### OmniVoice backend
 
-Do not move model architecture, quantization, checkpoint loading, Qwen
-conditioning, or VAE compilation code into TinyTalk. Those belong in TinyTAuK.
+The adapter loads one long-lived upstream `OmniVoice` model. CPU loads use
+float32; non-CPU devices use float16 unless qualification shows a device-specific
+requirement. A configured reference audio/transcript pair is encoded once into a
+reusable voice-clone prompt. Request instructions override that configured clone
+for the request and select upstream voice-design mode. Instructions must use
+upstream's fixed comma-separated attribute vocabulary; they are not semantic
+natural-language prompts. With neither instructions nor a configured clone,
+generation uses upstream auto voice. Shared WER/CER evaluates every candidate,
+while retries raise OmniVoice `class_temperature` from the greedy first-pass
+default.
+
+The qualified CPU stack is Python 3.13.13, OmniVoice 0.2.1, Torch 2.8.0+cpu,
+and Transformers 5.17.0. One manual sweep measured approximately 2.6-2.8 GiB
+peak process RSS for auto/design and approximately 5.1 GiB for cloned generation.
+Treat those figures as host-specific capacity guidance rather than guarantees.
+
+Keep pronunciation markup, LoRA, batch inference, request-level reference-audio
+uploads, and accelerator-specific optimization out of the generic TinyTalk API
+until separately justified.
 
 ## Env Var Map
 
@@ -193,12 +223,23 @@ TinyTAuK:
 | `TINYTALK_TINYTAUK_QWEN_MODEL` | `services.tinytalk.tinytaukQwenModel` | `Qwen/Qwen2.5-Omni-3B` |
 | `TINYTALK_TINYTAUK_CHARS_PER_SECOND` | `services.tinytalk.tinytaukCharsPerSecond` | `14.0` |
 
+OmniVoice:
+
+| Env var | NixOS option | Default |
+| --- | --- | --- |
+| `TINYTALK_OMNIVOICE_MODEL` | `services.tinytalk.omnivoiceModel` | `k2-fsa/OmniVoice` |
+| `TINYTALK_OMNIVOICE_DEVICE` | `services.tinytalk.omnivoiceDevice` | `cpu` |
+| `TINYTALK_OMNIVOICE_LANGUAGE` | `services.tinytalk.omnivoiceLanguage` | empty |
+| `TINYTALK_OMNIVOICE_REF_AUDIO` | `services.tinytalk.omnivoiceRefAudio` | unset |
+| `TINYTALK_OMNIVOICE_REF_TEXT` | `services.tinytalk.omnivoiceRefText` | unset |
+
 ## Deploy
 
-The NixOS module bootstraps backend-specific Python packages under
-`/var/lib/tinytalk/python`. NeuTTS uses Python 3.12 by default; TinyTAuK uses
-Python 3.13. The package-requirements marker includes the backend so switching
-backend forces a clean runtime reinstall.
+The NixOS module bootstraps the selected backend's Python packages under
+`/var/lib/tinytalk/python` using Python 3.13. The requirements marker includes
+the backend, so switching backend forces a clean runtime reinstall. Backend
+package lists remain separate until a common Torch/Transformers stack is fully
+qualified.
 
 If a host overrides `runtimePackages`, it owns the complete selected backend
 runtime set. Keep TinyTAuK pinned to a released tag rather than `main` in

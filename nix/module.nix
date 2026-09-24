@@ -3,40 +3,14 @@
 
 let
   cfg = config.services.tinytalk;
-  python = if cfg.backend == "tinytauk" then pkgs.python313 else pkgs.python312;
-  pythonTarget = "/var/lib/tinytalk/python";
-
-  commonRuntimePackages = [
-    "fastapi"
-    "uvicorn[standard]"
-    "numpy"
-    "spacy"
-  ];
-
-  neuttsRuntimePackages = commonRuntimePackages ++ [
-    "torch==2.8.0+cpu"
-    "torchaudio==2.8.0+cpu"
-    "torchao==0.13.0"
-    "torchtune==0.6.1"
-    "neutts[all]==1.4.1"
-    "librosa"
-    "praat-parselmouth"
-  ];
-
-  tinytaukRuntimePackages = commonRuntimePackages ++ [
-    "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.1.tar.gz"
-  ];
-
-  runtimePackages =
-    if cfg.backend == "tinytauk"
-    then tinytaukRuntimePackages
-    else neuttsRuntimePackages;
+  python = pkgs.python313;
+  pythonEnvironment = "/var/lib/tinytalk/python";
 
   commonOptions = {
     enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
 
     backend = lib.mkOption {
-      type = lib.types.enum [ "neutts" "tinytauk" ];
+      type = lib.types.enum [ "neutts" "tinytauk" "omnivoice" ];
       default = "neutts";
       description = "Synthesis backend for this service instance.";
     };
@@ -143,6 +117,12 @@ let
   };
 
   tinytaukOptions = {
+    tinytaukProfile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Optional TinyTAuK v0.2 TOML runtime profile. When set, model IDs, devices, dtypes, seed and thread count come from the profile.";
+    };
+
     tinytaukModel = lib.mkOption {
       type = lib.types.str;
       default = "tencent/AuK-Flash";
@@ -162,35 +142,49 @@ let
     };
   };
 
+  omnivoiceOptions = {
+    omnivoiceModel = lib.mkOption {
+      type = lib.types.str;
+      default = "k2-fsa/OmniVoice";
+      description = "OmniVoice model repository or local checkpoint path.";
+    };
+
+    omnivoiceDevice = lib.mkOption {
+      type = lib.types.str;
+      default = "cpu";
+      description = "Device map passed to OmniVoice.from_pretrained.";
+    };
+
+    omnivoiceLanguage = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Optional OmniVoice language name or code. Empty enables automatic language handling.";
+    };
+
+    omnivoiceRefAudio = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Optional reference WAV for OmniVoice voice cloning.";
+    };
+
+    omnivoiceRefText = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Transcript file paired with omnivoiceRefAudio.";
+    };
+  };
+
   runtimeOptions = {
     memoryHigh = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "systemd MemoryHigh. Null selects the backend default (5 GB NeuTTS, 17 GB TinyTAuK).";
+      description = "systemd MemoryHigh. Null selects the backend default.";
     };
 
     memoryMax = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "systemd MemoryMax. Null selects the backend default (6 GB NeuTTS, 20 GB TinyTAuK).";
-    };
-
-    runtimeIndexUrl = lib.mkOption {
-      type = lib.types.str;
-      default = "https://pypi.org/simple";
-      description = "Default/fallback Python package index used by the runtime bootstrap.";
-    };
-
-    runtimeExtraIndexUrls = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [ "https://download.pytorch.org/whl/cpu" ];
-      description = "Higher-priority Python package indexes used by the runtime bootstrap.";
-    };
-
-    runtimePackages = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = runtimePackages;
-      description = "Python package specs installed by the runtime bootstrap.";
+      description = "systemd MemoryMax. Null selects the backend default.";
     };
   };
 
@@ -224,15 +218,36 @@ let
     TINYTALK_TINYTAUK_MODEL = cfg.tinytaukModel;
     TINYTALK_TINYTAUK_QWEN_MODEL = cfg.tinytaukQwenModel;
     TINYTALK_TINYTAUK_CHARS_PER_SECOND = toString cfg.tinytaukCharsPerSecond;
+  }
+  // lib.optionalAttrs (cfg.tinytaukProfile != null) {
+    TINYTALK_TINYTAUK_PROFILE = "${cfg.tinytaukProfile}";
+  };
+
+  omnivoiceEnvironment = {
+    TINYTALK_OMNIVOICE_MODEL = cfg.omnivoiceModel;
+    TINYTALK_OMNIVOICE_DEVICE = cfg.omnivoiceDevice;
+    TINYTALK_OMNIVOICE_LANGUAGE = cfg.omnivoiceLanguage;
+  }
+  // lib.optionalAttrs (cfg.omnivoiceRefAudio != null) {
+    TINYTALK_OMNIVOICE_REF_AUDIO = toString cfg.omnivoiceRefAudio;
+  }
+  // lib.optionalAttrs (cfg.omnivoiceRefText != null) {
+    TINYTALK_OMNIVOICE_REF_TEXT = toString cfg.omnivoiceRefText;
   };
 
   backendEnvironment =
-    if cfg.backend == "tinytauk"
-    then tinytaukEnvironment
+    if cfg.backend == "tinytauk" then tinytaukEnvironment
+    else if cfg.backend == "omnivoice" then omnivoiceEnvironment
     else neuttsEnvironment;
 
-  defaultMemoryHigh = if cfg.backend == "tinytauk" then "17G" else "5000M";
-  defaultMemoryMax = if cfg.backend == "tinytauk" then "20G" else "6000M";
+  defaultMemoryHigh =
+    if cfg.backend == "tinytauk" then "17G"
+    else if cfg.backend == "omnivoice" then "12G"
+    else "5000M";
+  defaultMemoryMax =
+    if cfg.backend == "tinytauk" then "20G"
+    else if cfg.backend == "omnivoice" then "16G"
+    else "6000M";
 
   prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
     builtins.replaceStrings
@@ -241,17 +256,15 @@ let
       (builtins.readFile ./tinytalk-prestart.sh)
   );
 
-  requirementsFile = pkgs.writeText "tinytalk-runtime-requirements.txt" (
-    lib.concatStringsSep "\n" cfg.runtimePackages + "\n"
-  );
-
   runtimeEnvironment = {
-    TINYTALK_PYTHON_TARGET = pythonTarget;
-    TINYTALK_PIP_INDEX_URL = cfg.runtimeIndexUrl;
-    TINYTALK_PIP_EXTRA_INDEX_URLS = lib.concatStringsSep " " cfg.runtimeExtraIndexUrls;
-    TINYTALK_RUNTIME_REQUIREMENTS = toString requirementsFile;
-    PYTHONPATH = "${self.outPath}:${pythonTarget}";
-    LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ];
+    TINYTALK_PROJECT_ROOT = "${self.outPath}";
+    TINYTALK_PYTHON_ENVIRONMENT = pythonEnvironment;
+    LD_LIBRARY_PATH = lib.makeLibraryPath [
+      pkgs.ffmpeg_8.lib
+      pkgs.libsndfile
+      pkgs.stdenv.cc.cc.lib
+      pkgs.zlib
+    ];
     HOME = "/var/lib/tinytalk";
     UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
   };
@@ -262,6 +275,7 @@ in
     // qualityOptions
     // neuttsOptions
     // tinytaukOptions
+    // omnivoiceOptions
     // runtimeOptions;
 
   config = lib.mkIf cfg.enable {
@@ -269,6 +283,12 @@ in
       {
         assertion = cfg.backend != "tinytauk" || cfg.tinytaukCharsPerSecond > 0.0;
         message = "services.tinytalk.tinytaukCharsPerSecond must be positive";
+      }
+      {
+        assertion =
+          cfg.backend != "omnivoice"
+          || ((cfg.omnivoiceRefAudio == null) == (cfg.omnivoiceRefText == null));
+        message = "services.tinytalk.omnivoiceRefAudio and omnivoiceRefText must be configured together";
       }
     ];
 
@@ -297,13 +317,16 @@ in
 
       serviceConfig = {
         ExecStartPre = prestart;
-        ExecStart = "${python}/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
+        ExecStart = "${pythonEnvironment}/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
         User = "tinytalk";
         Group = "tinytalk";
         PrivateTmp = true;
         Restart = "on-failure";
         RestartSec = 3;
-        TimeoutStartSec = if cfg.backend == "tinytauk" then "30min" else "15min";
+        TimeoutStartSec =
+          if cfg.backend == "tinytauk" then "30min"
+          else if cfg.backend == "omnivoice" then "20min"
+          else "15min";
         MemoryHigh = if cfg.memoryHigh != null then cfg.memoryHigh else defaultMemoryHigh;
         MemoryMax = if cfg.memoryMax != null then cfg.memoryMax else defaultMemoryMax;
         StateDirectory = "tinytalk";

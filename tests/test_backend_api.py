@@ -39,9 +39,10 @@ def test_rejects_speed_outside_supported_range(monkeypatch):
     assert too_fast.status_code == 400
 
 
-def test_controlled_backend_receives_instructions_and_speed(monkeypatch):
+@pytest.mark.parametrize("backend", ["tinytauk", "omnivoice"])
+def test_controlled_backend_receives_instructions_and_speed(monkeypatch, backend):
     engine = FakeControlledEngine()
-    monkeypatch.setattr(server, "settings", Settings(backend="tinytauk"))
+    monkeypatch.setattr(server, "settings", Settings(backend=backend))
     monkeypatch.setattr(server, "engine", engine)
     with TestClient(server.app) as client:
         response = client.post(
@@ -55,18 +56,18 @@ def test_controlled_backend_receives_instructions_and_speed(monkeypatch):
     assert response.status_code == 200
     assert engine.last_instructions == "Speak calmly."
     assert engine.last_speed == 1.5
-    assert response.headers["X-TinyTalk-Backend"] == "tinytauk"
+    assert response.headers["X-TinyTalk-Backend"] == backend
     assert response.headers["X-TinyTalk-Model"] == "fake/controlled"
 
 
-@pytest.mark.parametrize("backend", ["neutts", "tinytauk"])
+@pytest.mark.parametrize("backend", ["neutts", "tinytauk", "omnivoice"])
 def test_missing_backend_extra_has_actionable_error(monkeypatch, backend):
     def missing_import(_module_name):
         raise ModuleNotFoundError(f"No module named {backend!r}", name=backend)
 
     monkeypatch.setattr(engine_module, "import_module", missing_import)
 
-    expected = rf"pip install 'tinytalk\[{backend}\]'"
+    expected = rf"uv sync --frozen --extra {backend}"
     with pytest.raises(RuntimeError, match=expected):
         create_engine(Settings(backend=backend))
 
@@ -79,10 +80,10 @@ def test_legacy_tinytalk_engine_respects_backend_selection(monkeypatch):
         return FakeControlledEngine
 
     monkeypatch.setattr(engine_module, "_backend_class", fake_backend_class)
-    settings = Settings(backend="tinytauk")
+    settings = Settings(backend="omnivoice")
 
     engine = TinyTalkEngine(settings)
 
     assert isinstance(engine, FakeControlledEngine)
     assert engine.settings is settings
-    assert seen == ["tinytauk"]
+    assert seen == ["omnivoice"]

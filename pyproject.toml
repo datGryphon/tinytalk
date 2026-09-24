@@ -1,7 +1,7 @@
 [project]
 name = "tinytalk"
 description = "OpenAI-compatible TTS server for modest machines"
-requires-python = ">=3.12"
+requires-python = ">=3.13,<3.14"
 dynamic = ["version"]
 authors = [{ email = "calebwastler@gmail.com" }]
 dependencies = [
@@ -14,21 +14,39 @@ dependencies = [
 [project.optional-dependencies]
 neutts = [
   "neutts[all]==1.4.1",
-  "torch==2.8.0",
-  "torchaudio==2.8.0",
-  "torchao==0.13.0",
-  "torchtune==0.6.1",
   "librosa",
   "praat-parselmouth",
 ]
 tinytauk = [
-  "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.1.1.tar.gz",
+  "tinytauk @ https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.2.0.tar.gz",
+  "torchvision",
+]
+omnivoice = [
+  "omnivoice==0.2.1",
 ]
 test = [
   "pytest",
   "httpx",
   "openai-whisper",
 ]
+
+[tool.uv]
+override-dependencies = [
+  "torch==2.11.0",
+  "torchaudio==2.11.0",
+  "transformers==5.17.0",
+  "neucodec @ https://github.com/datGryphon/neucodec/archive/6954b1f877963e19177b43be1ef56b1818990d31.tar.gz",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 [tool.setuptools.packages.find]
 include = ["tinytalk*"]

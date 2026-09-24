@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile:
+    name: uv.lock / Check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.12.17'
+          enable-cache: false
+
+      - name: Verify lockfile is current
+        run: uv lock --check
+
+  native:
+    name: Native Ubuntu / ${{ matrix.label }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: neutts
+            label: NeuTTS
+            pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
+          - backend: omnivoice
+            label: OmniVoice
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
+          - backend: tinytauk
+            label: TinyTAuK
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
+
+    env:
+      TINYTALK_BACKEND: ${{ matrix.backend }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up native backend
+        id: setup
+        uses: ./.github/actions/setup-native
+        with:
+          extras: '["${{ matrix.backend }}","test"]'
+
+      - name: Run backend tests and runtime contract
+        uses: ./.github/actions/run-check
+        with:
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: ${{ matrix.pytest-arguments }}
+
+  nix:
+    name: Nix / ${{ matrix.label }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: neutts
+            label: NeuTTS
+            shell: neutts
+            pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
+          - backend: omnivoice
+            label: OmniVoice
+            shell: omnivoice
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
+          - backend: tinytauk
+            label: TinyTAuK
+            shell: tinytauk
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
+
+    env:
+      TINYTALK_BACKEND: ${{ matrix.backend }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Check flake and NixOS module
+        if: matrix.backend == 'neutts'
+        run: nix flake check
+
+      - name: Run backend tests and runtime contract
+        uses: ./.github/actions/run-check
+        with:
+          executable: python
+          arguments: ${{ matrix.pytest-arguments }}
+          nix-shell: ${{ matrix.shell }}
+
+  shared:
+    name: Native Ubuntu / Shared runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up shared native runtime
+        id: setup
+        uses: ./.github/actions/setup-native
+        with:
+          extras: '["neutts","omnivoice","tinytauk","test"]'
+
+      - name: Run NeuTTS tests and runtime contract
+        uses: ./.github/actions/run-check
+        env:
+          TINYTALK_BACKEND: neutts
+        with:
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
+
+      - name: Run OmniVoice tests and runtime contract
+        uses: ./.github/actions/run-check
+        env:
+          TINYTALK_BACKEND: omnivoice
+        with:
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
+
+      - name: Run TinyTAuK tests and runtime contract
+        uses: ./.github/actions/run-check
+        env:
+          TINYTALK_BACKEND: tinytauk
+        with:
+          executable: ${{ steps.setup.outputs.python-path }}
+          arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'

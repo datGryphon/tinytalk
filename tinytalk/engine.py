@@ -44,6 +44,7 @@ class SpeechEngine(Protocol):
 _BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
     "neutts": ("tinytalk.backends.neutts", "NeuTTSEngine"),
     "tinytauk": ("tinytalk.backends.tinytauk", "TinyTAuKEngine"),
+    "omnivoice": ("tinytalk.backends.omnivoice", "OmniVoiceEngine"),
 }
 
 
@@ -63,15 +64,15 @@ def _backend_class(backend: Backend):
         missing = exc.name or "an optional dependency"
         raise RuntimeError(
             f"TinyTalk backend {backend!r} is not installed: missing Python module {missing!r}. "
-            f"Install it with `pip install 'tinytalk[{backend}]'` or, from a source checkout, "
-            f"`pip install -e '.[{backend}]'`."
+            f"From a source checkout run `uv sync --frozen --extra {backend}`."
         ) from exc
     return getattr(module, class_name)
 
 
 def create_engine(settings: Settings) -> SpeechEngine:
-    # Backend ML stacks are intentionally isolated. Import only the selected
-    # implementation so one service instance needs only its own dependencies.
+    # Backend ML stacks are intentionally imported lazily. This preserves clean
+    # implementation boundaries even when multiple backends eventually share a
+    # qualified Python/Torch environment.
     engine_class = _backend_class(settings.backend)
     return engine_class(settings)
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 
-Backend = Literal["neutts", "tinytauk"]
+Backend = Literal["neutts", "tinytauk", "omnivoice"]
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,13 @@ class Settings:
     ref_text: Path = Path("/var/lib/tinytalk/ref_text.txt")
     tinytauk_model: str = "tencent/AuK-Flash"
     tinytauk_qwen_model: str = "Qwen/Qwen2.5-Omni-3B"
+    tinytauk_profile: Path | None = None
     tinytauk_chars_per_second: float = 14.0
+    omnivoice_model: str = "k2-fsa/OmniVoice"
+    omnivoice_device: str = "cpu"
+    omnivoice_language: str = ""
+    omnivoice_ref_audio: Path | None = None
+    omnivoice_ref_text: Path | None = None
     host: str = "0.0.0.0"
     port: int = 9002
     max_chars_per_chunk: int = 180
@@ -43,9 +49,15 @@ def load_settings() -> Settings:
         tinytauk_qwen_model=os.getenv(
             "TINYTALK_TINYTAUK_QWEN_MODEL", Settings.tinytauk_qwen_model
         ),
+        tinytauk_profile=_optional_path_env("TINYTALK_TINYTAUK_PROFILE"),
         tinytauk_chars_per_second=_float_env(
             "TINYTALK_TINYTAUK_CHARS_PER_SECOND", Settings.tinytauk_chars_per_second
         ),
+        omnivoice_model=os.getenv("TINYTALK_OMNIVOICE_MODEL", Settings.omnivoice_model),
+        omnivoice_device=os.getenv("TINYTALK_OMNIVOICE_DEVICE", Settings.omnivoice_device),
+        omnivoice_language=os.getenv("TINYTALK_OMNIVOICE_LANGUAGE", Settings.omnivoice_language),
+        omnivoice_ref_audio=_optional_path_env("TINYTALK_OMNIVOICE_REF_AUDIO"),
+        omnivoice_ref_text=_optional_path_env("TINYTALK_OMNIVOICE_REF_TEXT"),
         host=os.getenv("TINYTALK_HOST", Settings.host),
         port=_int_env("TINYTALK_PORT", Settings.port),
         max_chars_per_chunk=_int_env(
@@ -70,9 +82,18 @@ def _backend_env(name: str, default: Backend) -> Backend:
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
-    if raw not in ("neutts", "tinytauk"):
-        raise ValueError(f"{name} must be 'neutts' or 'tinytauk', got {raw!r}")
+    if raw not in ("neutts", "tinytauk", "omnivoice"):
+        raise ValueError(
+            f"{name} must be 'neutts', 'tinytauk', or 'omnivoice', got {raw!r}"
+        )
     return cast(Backend, raw)
+
+
+def _optional_path_env(name: str) -> Path | None:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return None
+    return Path(raw)
 
 
 def _int_env(name: str, default: int) -> int:
