@@ -58,6 +58,12 @@ def test_python_version():
     assert sys.version_info[:2] == (3, 13)
 
 
+def test_tinytalk_distribution_is_installed():
+    import tinytalk
+
+    assert metadata.version("tinytalk") == tinytalk.__version__
+
+
 def test_backend_dependencies_match_project():
     requirements = PROJECT["project"]["optional-dependencies"][BACKEND]
     for requirement in requirements:

@@ -1854,7 +1854,7 @@ wheels = [
 
 [[package]]
 name = "tinytalk"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "numpy" },
