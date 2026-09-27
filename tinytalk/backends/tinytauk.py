@@ -53,10 +53,11 @@ class TinyTAuKEngine:
                 qwen_model_id=self.settings.tinytauk_qwen_model,
             )
 
-        # TinyTAuK's VAE compiles lazily. Exercise the same full-generation path
-        # used for real requests before the service reports healthy.
-        warmup = self.tts.generate(
-            self._instruction(_WARMUP_TEXT, None),
+        # TinyTAuK's VAE compiles lazily. Exercise the same conditioned-generation
+        # path used for real requests before the service reports healthy.
+        warmup_conditioning = self.tts.condition(self._instruction(_WARMUP_TEXT, None))
+        warmup = self.tts.generate_conditioned(
+            warmup_conditioning,
             gen_seconds=_WARMUP_SECONDS,
         )
         self.sample_rate = int(warmup.sample_rate)
@@ -129,6 +130,11 @@ class TinyTAuKEngine:
         duration = base_duration
         base_seed = self.tts.config.runtime.seed
         num_attempts = self.settings.max_retries + 1
+        instruction = self._instruction(chunk_text, instructions)
+        conditioning = self.tts.condition(
+            instruction,
+            seed=self._attempt_seed(base_seed, index, 0, num_attempts),
+        )
 
         best_audio: np.ndarray | None = None
         best_quality: QualityResult | None = None
@@ -150,8 +156,8 @@ class TinyTAuKEngine:
             try:
                 infer_start = time.perf_counter()
                 try:
-                    result = self.tts.generate(
-                        self._instruction(chunk_text, instructions),
+                    result = self.tts.generate_conditioned(
+                        conditioning,
                         gen_seconds=duration,
                         seed=seed,
                     )
