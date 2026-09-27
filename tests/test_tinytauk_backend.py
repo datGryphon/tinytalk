@@ -250,7 +250,7 @@ def test_backend_does_not_loudness_normalize():
             return GenerationResult(
                 audio=torch.full((24_000,), 0.02, dtype=torch.float32),
                 sample_rate=24_000,
-                generated_seconds=1.0,
+                generated_seconds=gen_seconds,
                 wall_seconds=0.0,
             )
 
