@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+from dataclasses import dataclass, field
 
 import numpy as np
 import pytest
@@ -6,40 +6,84 @@ import torch
 
 pytest.importorskip("tinytauk")
 
+from tinytauk.types import Conditioning, GenerationResult
+
 from tinytalk.backends import tinytauk as backend_module
 from tinytalk.backends.tinytauk import TinyTAuKEngine
 from tinytalk.config import Settings
 from tinytalk.quality import QualityResult
 
 
-class FakeTinyTAuK:
-    def __init__(self):
-        self.config = SimpleNamespace(runtime=SimpleNamespace(seed=100))
-        self.condition_calls = []
-        self.generate_calls = []
+@dataclass(frozen=True)
+class _FakeModelConfig:
+    model_id: str = "tencent/AuK-Flash"
 
-    def condition(self, instruction, *, seed=None):
-        conditioning = SimpleNamespace(instruction=instruction, seed=seed)
+
+@dataclass(frozen=True)
+class _FakeRuntimeConfig:
+    seed: int = 100
+
+
+@dataclass
+class _FakeConfig:
+    runtime: _FakeRuntimeConfig = field(default_factory=_FakeRuntimeConfig)
+    model: _FakeModelConfig = field(default_factory=_FakeModelConfig)
+
+
+@dataclass(frozen=True)
+class _ConditionCall:
+    instruction: str
+    seed: int | None
+    conditioning: Conditioning
+
+
+@dataclass(frozen=True)
+class _GenerateCall:
+    conditioning: Conditioning
+    gen_seconds: float
+    seed: int | None
+
+
+class FakeTinyTAuK:
+    def __init__(self) -> None:
+        self.config = _FakeConfig()
+        self.condition_calls: list[_ConditionCall] = []
+        self.generate_calls: list[_GenerateCall] = []
+
+    def condition(self, instruction: str, *, seed: int | None = None) -> Conditioning:
+        conditioning = Conditioning(
+            values=torch.empty((0,), dtype=torch.float32),
+            instruction=instruction,
+            seed=seed,
+        )
         self.condition_calls.append(
-            {
-                "instruction": instruction,
-                "seed": seed,
-                "conditioning": conditioning,
-            }
+            _ConditionCall(
+                instruction=instruction,
+                seed=seed,
+                conditioning=conditioning,
+            )
         )
         return conditioning
 
-    def generate_conditioned(self, conditioning, *, gen_seconds, seed=None):
+    def generate_conditioned(
+        self,
+        conditioning: Conditioning,
+        *,
+        gen_seconds: float,
+        seed: int | None = None,
+    ) -> GenerationResult:
         self.generate_calls.append(
-            {
-                "conditioning": conditioning,
-                "gen_seconds": gen_seconds,
-                "seed": seed,
-            }
+            _GenerateCall(
+                conditioning=conditioning,
+                gen_seconds=gen_seconds,
+                seed=seed,
+            )
         )
-        return SimpleNamespace(
+        return GenerationResult(
             audio=torch.zeros(int(24_000 * gen_seconds)),
             sample_rate=24_000,
+            generated_seconds=gen_seconds,
+            wall_seconds=0.0,
         )
 
 
@@ -107,7 +151,7 @@ def test_load_uses_models_and_warms_full_generation(monkeypatch):
         "qwen_model_id": "example/Qwen",
     }
     assert len(fake.condition_calls) == 1
-    assert fake.generate_calls[0]["gen_seconds"] == pytest.approx(9.0)
+    assert fake.generate_calls[0].gen_seconds == pytest.approx(9.0)
     assert engine.loaded is True
     assert engine.sample_rate == 24_000
 
@@ -116,7 +160,7 @@ def test_load_uses_tinytauk_profile(monkeypatch, tmp_path):
     profile = tmp_path / "runtime.toml"
     profile.write_text("[model]\nmodel_id = 'example/AuK'\n")
     fake = FakeTinyTAuK()
-    fake.config.model = SimpleNamespace(model_id="example/AuK")
+    fake.config.model = _FakeModelConfig(model_id="example/AuK")
     received = []
 
     class FakeFactory:
@@ -144,14 +188,14 @@ def test_load_uses_tinytauk_profile(monkeypatch, tmp_path):
     assert engine.model_name == "example/AuK"
     assert engine.loaded
     assert len(fake.condition_calls) == 1
-    assert fake.generate_calls[0]["gen_seconds"] == pytest.approx(9.0)
+    assert fake.generate_calls[0].gen_seconds == pytest.approx(9.0)
 
 
 def test_instructions_use_canonical_auk_serialization():
     engine = _engine()
     engine.synthesize("hello world", instructions="Speak calmly")
 
-    assert engine.tts.condition_calls[0]["instruction"] == (
+    assert engine.tts.condition_calls[0].instruction == (
         'Based on the following description: "Speak calmly", '
         'generate speech content "hello world".'
     )
@@ -161,7 +205,7 @@ def test_default_description_uses_canonical_auk_serialization():
     engine = _engine()
     engine.synthesize("hello world")
 
-    assert engine.tts.condition_calls[0]["instruction"] == (
+    assert engine.tts.condition_calls[0].instruction == (
         'Based on the following description: "A clear, natural speaking voice", '
         'generate speech content "hello world".'
     )
@@ -173,7 +217,7 @@ def test_speed_scales_target_duration():
 
     engine.synthesize(text, speed=2.0)
 
-    assert engine.tts.generate_calls[0]["gen_seconds"] == pytest.approx(1.0)
+    assert engine.tts.generate_calls[0].gen_seconds == pytest.approx(1.0)
 
 
 def test_chunk_seeds_are_deterministic_and_distinct():
@@ -181,25 +225,33 @@ def test_chunk_seeds_are_deterministic_and_distinct():
     engine.synthesize("one two three four five six seven eight nine ten")
 
     assert len(engine.tts.generate_calls) >= 2
-    assert [call["seed"] for call in engine.tts.generate_calls[:2]] == [100, 101]
-    assert [call["seed"] for call in engine.tts.condition_calls[:2]] == [100, 101]
+    assert [call.seed for call in engine.tts.generate_calls[:2]] == [100, 101]
+    assert [call.seed for call in engine.tts.condition_calls[:2]] == [100, 101]
 
 
 def test_backend_does_not_loudness_normalize():
     engine = _engine()
 
     class QuietTinyTAuK(FakeTinyTAuK):
-        def generate_conditioned(self, conditioning, *, gen_seconds, seed=None):
+        def generate_conditioned(
+            self,
+            conditioning: Conditioning,
+            *,
+            gen_seconds: float,
+            seed: int | None = None,
+        ) -> GenerationResult:
             self.generate_calls.append(
-                {
-                    "conditioning": conditioning,
-                    "gen_seconds": gen_seconds,
-                    "seed": seed,
-                }
+                _GenerateCall(
+                    conditioning=conditioning,
+                    gen_seconds=gen_seconds,
+                    seed=seed,
+                )
             )
-            return SimpleNamespace(
+            return GenerationResult(
                 audio=torch.full((24_000,), 0.02, dtype=torch.float32),
                 sample_rate=24_000,
+                generated_seconds=1.0,
+                wall_seconds=0.0,
             )
 
     engine.tts = QuietTinyTAuK()
@@ -224,10 +276,10 @@ def test_retries_reuse_one_conditioning_object(monkeypatch):
 
     assert len(engine.tts.condition_calls) == 1
     assert len(engine.tts.generate_calls) == 3
-    conditioning = engine.tts.condition_calls[0]["conditioning"]
-    assert all(call["conditioning"] is conditioning for call in engine.tts.generate_calls)
-    assert engine.tts.condition_calls[0]["seed"] == 100
-    assert [call["seed"] for call in engine.tts.generate_calls] == [100, 101, 102]
+    conditioning = engine.tts.condition_calls[0].conditioning
+    assert all(call.conditioning is conditioning for call in engine.tts.generate_calls)
+    assert engine.tts.condition_calls[0].seed == 100
+    assert [call.seed for call in engine.tts.generate_calls] == [100, 101, 102]
 
 
 def test_each_chunk_builds_its_own_conditioning():
@@ -237,7 +289,7 @@ def test_each_chunk_builds_its_own_conditioning():
     assert len(engine.tts.condition_calls) >= 2
     assert len(engine.tts.condition_calls) == len(engine.tts.generate_calls)
     assert all(
-        generate_call["conditioning"] is condition_call["conditioning"]
+        generate_call.conditioning is condition_call.conditioning
         for condition_call, generate_call in zip(
             engine.tts.condition_calls,
             engine.tts.generate_calls,
@@ -265,9 +317,9 @@ def test_prompt_leak_rerolls_with_new_seed_and_same_horizon(monkeypatch):
     result = engine.synthesize("x" * 28, instructions="Speak calmly and deliberately")
 
     calls = engine.tts.generate_calls
-    assert [call["seed"] for call in calls] == [100, 101]
-    assert calls[0]["gen_seconds"] == pytest.approx(2.0)
-    assert calls[1]["gen_seconds"] == pytest.approx(2.0)
+    assert [call.seed for call in calls] == [100, 101]
+    assert calls[0].gen_seconds == pytest.approx(2.0)
+    assert calls[1].gen_seconds == pytest.approx(2.0)
 
     chunk = result.timing.chunks[0]
     assert chunk["attempts"] == 2
@@ -290,8 +342,8 @@ def test_non_leak_insertions_shrink_generation_horizon(monkeypatch):
 
     engine.synthesize("x" * 28)
 
-    assert engine.tts.generate_calls[0]["gen_seconds"] == pytest.approx(2.0)
-    assert engine.tts.generate_calls[1]["gen_seconds"] == pytest.approx(1.84)
+    assert engine.tts.generate_calls[0].gen_seconds == pytest.approx(2.0)
+    assert engine.tts.generate_calls[1].gen_seconds == pytest.approx(1.84)
 
 
 def test_deletions_grow_generation_horizon(monkeypatch):
@@ -306,8 +358,8 @@ def test_deletions_grow_generation_horizon(monkeypatch):
 
     engine.synthesize("x" * 28)
 
-    assert engine.tts.generate_calls[0]["gen_seconds"] == pytest.approx(2.0)
-    assert engine.tts.generate_calls[1]["gen_seconds"] == pytest.approx(2.2)
+    assert engine.tts.generate_calls[0].gen_seconds == pytest.approx(2.0)
+    assert engine.tts.generate_calls[1].gen_seconds == pytest.approx(2.2)
 
 
 def test_retry_seed_ranges_do_not_collide_between_chunks(monkeypatch):
@@ -320,7 +372,7 @@ def test_retry_seed_ranges_do_not_collide_between_chunks(monkeypatch):
 
     engine.synthesize("one two three four five six seven eight nine ten")
 
-    seeds = [call["seed"] for call in engine.tts.generate_calls]
+    seeds = [call.seed for call in engine.tts.generate_calls]
     assert seeds[:6] == [100, 101, 102, 103, 104, 105]
 
 
