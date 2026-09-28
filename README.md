@@ -232,13 +232,12 @@ NeuCodec pipeline stays on CPU.
 
 ## Releases
 
-Releases keep the version bump behind the normal pull-request policy. Run the
-**Prepare release** workflow with an `X.Y.Z` version; it creates a
-`release/vX.Y.Z` branch, updates `tinytalk.__version__`, refreshes
-`uv.lock`, and opens a release PR. After that PR passes CI and is merged, the
-**Publish release** workflow tags that exact `main` commit as `vX.Y.Z` and
-creates the GitHub release with generated notes. The publish workflow is
-idempotent, so rerunning it will not move an existing tag.
+Python Semantic Release runs after CI succeeds on pushes to `main`.
+Conventional commits determine the SemVer bump: `feat` is minor,
+`fix`/`perf` are patch, and a breaking change is major. `pyproject.toml`
+owns the package version; `tinytalk.__version__` reads the installed package
+metadata. A release updates `uv.lock`, writes the changelog, commits the version,
+tags `vX.Y.Z`, and creates the GitHub release. PyPI publishing is not configured.
 
 ## Development
 
