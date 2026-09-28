@@ -19,10 +19,8 @@ git -C "$repo" archive HEAD | tar -x -C "$tmp/source"
 chmod -R a-w "$tmp/source"
 
 TINYTALK_BACKEND=neutts \
-TINYTALK_SOURCE="$tmp/source" \
-TINYTALK_APP_ROOT="$tmp/app" \
 UV_CACHE_DIR="$tmp/cache" \
-  "$repo/nix/tinytalk-prestart.sh"
+  "$repo/nix/tinytalk-prestart.sh" "$tmp/source" "$tmp/app"
 
 cmp "$tmp/source/tinytalk/__init__.py" "$tmp/app/tinytalk/__init__.py"
 test -x "$tmp/app/.venv/bin/python"

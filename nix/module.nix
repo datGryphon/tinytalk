@@ -253,8 +253,6 @@ let
     (builtins.readFile ./tinytalk-prestart.sh);
 
   runtimeEnvironment = {
-    TINYTALK_SOURCE = "${self.outPath}";
-    TINYTALK_APP_ROOT = appDirectory;
     LD_LIBRARY_PATH = lib.makeLibraryPath [
       pkgs.ffmpeg_8.lib
       pkgs.libsndfile
@@ -312,7 +310,7 @@ in
         ++ lib.optionals (cfg.backend == "tinytauk") [ pkgs.gcc pkgs.pkg-config ];
 
       serviceConfig = {
-        ExecStartPre = prestart;
+        ExecStartPre = "${prestart} ${self.outPath} ${appDirectory}";
         WorkingDirectory = appDirectory;
         ExecStart = "${appDirectory}/.venv/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
         User = "tinytalk";
