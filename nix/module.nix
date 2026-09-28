@@ -249,15 +249,11 @@ let
     else if cfg.backend == "omnivoice" then "16G"
     else "6000M";
 
-  prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
-    builtins.replaceStrings
-      [ "@python@" "@uv@" ]
-      [ "${python}" "${pkgs.uv}" ]
-      (builtins.readFile ./tinytalk-prestart.sh)
-  );
+  prestart = pkgs.writeShellScript "tinytalk-prestart.sh"
+    (builtins.readFile ./tinytalk-prestart.sh);
 
   runtimeEnvironment = {
-    TINYTALK_PROJECT_ROOT = "${self.outPath}";
+    TINYTALK_SOURCE = "${self.outPath}";
     TINYTALK_APP_ROOT = appDirectory;
     LD_LIBRARY_PATH = lib.makeLibraryPath [
       pkgs.ffmpeg_8.lib

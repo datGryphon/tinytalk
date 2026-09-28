@@ -21,7 +21,7 @@ let
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
   usesAppDirectory = service:
-    service.environment.TINYTALK_PROJECT_ROOT == "${self.outPath}"
+    service.environment.TINYTALK_SOURCE == "${self.outPath}"
     && service.environment.TINYTALK_APP_ROOT == "/var/lib/tinytalk/app"
     && service.serviceConfig.WorkingDirectory == "/var/lib/tinytalk/app"
     && lib.hasPrefix "/var/lib/tinytalk/app/.venv/bin/python " service.serviceConfig.ExecStart;
