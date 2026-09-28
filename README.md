@@ -21,9 +21,9 @@ own upstream terms; TinyTalk's license does not grant rights to those models.
 
 | Backend | Default model stack | Upstream licensing notes |
 | --- | --- | --- |
-| **NeuTTS** | `neuphonic/neutts-nano-q4-gguf` + `neuphonic/neucodec-onnx-decoder-int8` | The default Nano Q4 model repo is gated and currently reports `license: other`; review its bundled `LICENCE` before deployment. The default INT8 NeuCodec repo is Apache-2.0 and also gated. Other selectable NeuTTS checkpoints can differ; for example, `neuphonic/neutts-air-q4-gguf` currently reports Apache-2.0. |
-| **TinyTAuK** | `tencent/AuK-Flash` + `Qwen/Qwen2.5-Omni-3B` | AuK-Flash is MIT-licensed. The default Qwen conditioner uses the Qwen Research License, which grants non-commercial use only unless you obtain a separate commercial license from Alibaba Cloud. |
-| **OmniVoice** | `k2-fsa/OmniVoice` | OmniVoice code is Apache-2.0, while the published pretrained weights are CC-BY-NC/non-commercial. |
+| **NeuTTS** | [`neuphonic/neutts-nano-q4-gguf`](https://huggingface.co/neuphonic/neutts-nano-q4-gguf) + [`neuphonic/neucodec-onnx-decoder-int8`](https://huggingface.co/neuphonic/neucodec-onnx-decoder-int8) | The default Nano Q4 model repo is gated and currently reports `license: other`; review its bundled `LICENCE` before deployment. The default INT8 NeuCodec repo is Apache-2.0 and also gated. Other selectable NeuTTS checkpoints can differ; for example, [`neuphonic/neutts-air-q4-gguf`](https://huggingface.co/neuphonic/neutts-air-q4-gguf) currently reports Apache-2.0. |
+| **TinyTAuK** | [`tencent/AuK-Flash`](https://huggingface.co/tencent/AuK-Flash) + [`Qwen/Qwen2.5-Omni-3B`](https://huggingface.co/Qwen/Qwen2.5-Omni-3B) | AuK-Flash is MIT-licensed. The default Qwen conditioner uses the [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-Omni-3B/blob/main/LICENSE), which grants non-commercial use only unless you obtain a separate commercial license from Alibaba Cloud. |
+| **OmniVoice** | [`k2-fsa/OmniVoice`](https://huggingface.co/k2-fsa/OmniVoice) | OmniVoice code is Apache-2.0, while the published pretrained weights are CC-BY-NC/non-commercial. |
 
 These notes describe the default model IDs in this repository as of September
 2026. If you point TinyTalk at different checkpoints or a custom TinyTAuK
