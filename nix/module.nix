@@ -249,16 +249,24 @@ let
     else if cfg.backend == "omnivoice" then "16G"
     else "6000M";
 
-  prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
+  appDirectory = "/var/lib/tinytalk/app";
+
+  setup = pkgs.writeShellScript "tinytalk-setup.sh" (
     builtins.replaceStrings
       [ "@python@" "@uv@" ]
       [ "${python}" "${pkgs.uv}" ]
-      (builtins.readFile ./tinytalk-prestart.sh)
+      (builtins.readFile ./tinytalk-setup.sh)
   );
 
+  setupEnvironment = {
+    TINYTALK_BACKEND = cfg.backend;
+    TINYTALK_SOURCE = "${self.outPath}";
+    TINYTALK_APP_DIR = appDirectory;
+    HOME = "/var/lib/tinytalk";
+    UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
+  };
+
   runtimeEnvironment = {
-    TINYTALK_PROJECT_ROOT = "${self.outPath}";
-    TINYTALK_PYTHON_ENVIRONMENT = pythonEnvironment;
     LD_LIBRARY_PATH = lib.makeLibraryPath [
       pkgs.ffmpeg_8.lib
       pkgs.libsndfile
@@ -266,7 +274,6 @@ let
       pkgs.zlib
     ];
     HOME = "/var/lib/tinytalk";
-    UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
   };
 in
 {
@@ -299,11 +306,38 @@ in
     };
     users.groups.tinytalk = { };
 
-    systemd.services.tinytalk = {
-      description = "tinytalk OpenAI-compatible TTS server";
+    systemd.services.tinytalk-setup = {
+      description = "Prepare the tinytalk application environment";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
+      before = [ "tinytalk.service" ];
+
+      environment = setupEnvironment;
+      path = [ pkgs.coreutils pkgs.uv python ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = setup;
+        User = "tinytalk";
+        Group = "tinytalk";
+        PrivateTmp = true;
+        TimeoutStartSec =
+          if cfg.backend == "tinytauk" then "30min"
+          else if cfg.backend == "omnivoice" then "20min"
+          else "15min";
+        StateDirectory = "tinytalk";
+        StateDirectoryMode = "0750";
+      };
+    };
+
+    systemd.services.tinytalk = {
+      description = "tinytalk OpenAI-compatible TTS server";
+      requires = [ "tinytalk-setup.service" ];
+      after = [ "network-online.target" "tinytalk-setup.service" ];
+      wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
+      restartTriggers = [ self.outPath ];
 
       environment =
         commonEnvironment
@@ -312,25 +346,19 @@ in
         // runtimeEnvironment;
 
       path =
-        [ pkgs.coreutils pkgs.uv python pkgs.ffmpeg-headless ]
+        [ pkgs.ffmpeg-headless ]
         ++ lib.optionals (cfg.backend == "tinytauk") [ pkgs.gcc pkgs.pkg-config ];
 
       serviceConfig = {
-        ExecStartPre = prestart;
-        ExecStart = "${pythonEnvironment}/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
+        WorkingDirectory = appDirectory;
+        ExecStart = "${appDirectory}/.venv/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
         User = "tinytalk";
         Group = "tinytalk";
         PrivateTmp = true;
         Restart = "on-failure";
         RestartSec = 3;
-        TimeoutStartSec =
-          if cfg.backend == "tinytauk" then "30min"
-          else if cfg.backend == "omnivoice" then "20min"
-          else "15min";
         MemoryHigh = if cfg.memoryHigh != null then cfg.memoryHigh else defaultMemoryHigh;
         MemoryMax = if cfg.memoryMax != null then cfg.memoryMax else defaultMemoryMax;
-        StateDirectory = "tinytalk";
-        StateDirectoryMode = "0750";
       };
     };
   };
