@@ -4,7 +4,6 @@
 let
   cfg = config.services.tinytalk;
   python = pkgs.python313;
-  pythonEnvironment = "/var/lib/tinytalk/python";
 
   commonOptions = {
     enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
