@@ -1,0 +1,123 @@
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v (for example, 0.1.2)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-pr:
+    name: Prepare v${{ inputs.version }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.12.17'
+          enable-cache: false
+
+      - name: Validate requested version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be X.Y.Z, got: $VERSION" >&2
+            exit 1
+          fi
+
+          current="$(
+            python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          text = Path("tinytalk/__init__.py").read_text()
+          match = re.search(r'^__version__ = "([^"]+)"$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit("Could not read tinytalk.__version__")
+          print(match.group(1))
+          PY
+          )"
+
+          if [[ "$VERSION" == "$current" ]]; then
+            echo "tinytalk is already version $VERSION" >&2
+            exit 1
+          fi
+
+          tag="v$VERSION"
+          branch="release/$tag"
+
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists" >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "Branch $branch already exists" >&2
+            exit 1
+          fi
+
+      - name: Bump version and refresh lock
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          python3 - "$VERSION" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          version = sys.argv[1]
+          path = Path("tinytalk/__init__.py")
+          text = path.read_text()
+          updated, count = re.subn(
+              r'^__version__ = "[^"]+"$',
+              f'__version__ = "{version}"',
+              text,
+              flags=re.MULTILINE,
+          )
+          if count != 1:
+              raise SystemExit(f"Expected one version assignment, found {count}")
+          path.write_text(updated)
+          PY
+
+          uv lock
+          git diff --check
+
+      - name: Create release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          tag="v$VERSION"
+          branch="release/$tag"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add tinytalk/__init__.py uv.lock
+          git commit -m "release: prepare $tag"
+          git push --set-upstream origin "$branch"
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "release: $tag" \
+            --body "Prepare TinyTalk $tag. Merge after the normal CI checks pass; the publish workflow will tag the merged main commit and create the GitHub release."

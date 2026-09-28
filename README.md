@@ -29,7 +29,6 @@ These notes describe the default model IDs in this repository as of September
 2026. If you point TinyTalk at different checkpoints or a custom TinyTAuK
 profile, check the licenses for the complete model stack you actually deploy.
 
-
 ## Python environments
 
 `pyproject.toml` and `uv.lock` are the source of truth for TinyTalk's Python
@@ -126,7 +125,6 @@ the shared uv download cache under `/var/lib/tinytalk/.cache/uv`. The
 `tinytalk.service` unit then runs only the prepared `.venv`; normal process
 restarts do not invoke uv or repeat package downloads. If setup fails, the
 previous complete app directory is restored.
-
 
 ```nix
 services.tinytalk = {
@@ -235,6 +233,16 @@ from the PyTorch CPU index. `backboneDevice = "gpu"` still controls the NeuTTS
 GGUF backbone, but switching the Python runtime itself to CUDA now requires a
 separate lock/profile change rather than NixOS-only package overrides. The
 NeuCodec pipeline stays on CPU.
+
+## Releases
+
+Releases keep the version bump behind the normal pull-request policy. Run the
+**Prepare release** workflow with an `X.Y.Z` version; it creates a
+`release/vX.Y.Z` branch, updates `tinytalk.__version__`, refreshes
+`uv.lock`, and opens a release PR. After that PR passes CI and is merged, the
+**Publish release** workflow tags that exact `main` commit as `vX.Y.Z` and
+creates the GitHub release with generated notes. The publish workflow is
+idempotent, so rerunning it will not move an existing tag.
 
 ## Development
 
