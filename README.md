@@ -118,13 +118,10 @@ inputs.tinytalk.url = "github:datGryphon/tinytalk";
 Import `tinytalk.nixosModules.default` and configure `services.tinytalk`.
 NeuTTS remains the default.
 
-The NixOS module separates environment setup from the long-running server.
-`tinytalk-setup.service` copies the immutable flake source into
-`/var/lib/tinytalk/app`, performs a fresh `uv sync --frozen` there, and keeps
-the shared uv download cache under `/var/lib/tinytalk/.cache/uv`. The
-`tinytalk.service` unit then runs only the prepared `.venv`; normal process
-restarts do not invoke uv or repeat package downloads. If setup fails, the
-previous complete app directory is restored.
+The NixOS service copies the immutable flake source into
+`/var/lib/tinytalk/app`, runs `uv sync --frozen` in that writable copy, and
+starts TinyTalk from its `.venv`. Each service start rebuilds the app directory;
+the uv download cache remains under `/var/lib/tinytalk/.cache/uv`.
 
 ```nix
 services.tinytalk = {
