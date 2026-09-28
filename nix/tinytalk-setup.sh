@@ -34,10 +34,10 @@ mkdir -p "$app_dir"
 cp -R --no-preserve=mode,ownership "$source_root"/. "$app_dir"/
 
 cd "$app_dir"
-@uv@/bin/uv sync \
+uv sync \
   --frozen \
   --no-dev \
-  --python @python@/bin/python \
+  --python 3.13 \
   --extra "$backend"
 
 trap - EXIT

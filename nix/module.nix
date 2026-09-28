@@ -251,10 +251,7 @@ let
   appDirectory = "/var/lib/tinytalk/app";
 
   setup = pkgs.writeShellScript "tinytalk-setup.sh" (
-    builtins.replaceStrings
-      [ "@python@" "@uv@" ]
-      [ "${python}" "${pkgs.uv}" ]
-      (builtins.readFile ./tinytalk-setup.sh)
+    builtins.readFile ./tinytalk-setup.sh
   );
 
   setupEnvironment = {
