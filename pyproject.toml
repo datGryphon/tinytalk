@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tinytalk"
-version = "0.1.1"
+version = "0.1.2"
 description = "OpenAI-compatible TTS server for modest machines"
 requires-python = ">=3.13,<3.14"
 authors = [{ email = "calebwastler@gmail.com" }]
