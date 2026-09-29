@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tinytalk"
+version = "0.1.1"
 description = "OpenAI-compatible TTS server for modest machines"
 requires-python = ">=3.13,<3.14"
-dynamic = ["version"]
 authors = [{ email = "calebwastler@gmail.com" }]
 dependencies = [
   "fastapi",
@@ -55,8 +55,14 @@ torchvision = { index = "pytorch-cpu" }
 [tool.setuptools.packages.find]
 include = ["tinytalk*"]
 
-[tool.setuptools.dynamic]
-version = { attr = "tinytalk.__version__" }
+[tool.semantic_release]
+allow_zero_version = true
+version_toml = ["pyproject.toml:project.version"]
+build_command = "uv lock"
+assets = ["uv.lock"]
+
+[tool.semantic_release.remote]
+token = { env = "GH_TOKEN" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

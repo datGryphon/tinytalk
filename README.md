@@ -14,6 +14,21 @@ Supported backends:
 
 The flake exports `nixosModules.default`.
 
+## Backend model licensing
+
+TinyTalk itself is MIT-licensed. Backend packages and model weights keep their
+own upstream terms; TinyTalk's license does not grant rights to those models.
+
+| Backend | Default model stack | Upstream licensing notes |
+| --- | --- | --- |
+| **NeuTTS** | [`neuphonic/neutts-nano-q4-gguf`](https://huggingface.co/neuphonic/neutts-nano-q4-gguf) + [`neuphonic/neucodec-onnx-decoder-int8`](https://huggingface.co/neuphonic/neucodec-onnx-decoder-int8) | The default Nano Q4 model repo is gated and currently reports `license: other`; review its bundled `LICENCE` before deployment. The default INT8 NeuCodec repo is Apache-2.0 and also gated. Other selectable NeuTTS checkpoints can differ; for example, [`neuphonic/neutts-air-q4-gguf`](https://huggingface.co/neuphonic/neutts-air-q4-gguf) currently reports Apache-2.0. |
+| **TinyTAuK** | [`tencent/AuK-Flash`](https://huggingface.co/tencent/AuK-Flash) + [`Qwen/Qwen2.5-Omni-3B`](https://huggingface.co/Qwen/Qwen2.5-Omni-3B) | AuK-Flash is MIT-licensed. The default Qwen conditioner uses the [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-Omni-3B/blob/main/LICENSE), which grants non-commercial use only unless you obtain a separate commercial license from Alibaba Cloud. |
+| **OmniVoice** | [`k2-fsa/OmniVoice`](https://huggingface.co/k2-fsa/OmniVoice) | OmniVoice code is Apache-2.0, while the published pretrained weights are CC-BY-NC/non-commercial. |
+
+These notes describe the default model IDs in this repository as of September
+2026. If you point TinyTalk at different checkpoints or a custom TinyTAuK
+profile, check the licenses for the complete model stack you actually deploy.
+
 ## Python environments
 
 `pyproject.toml` and `uv.lock` are the source of truth for TinyTalk's Python
@@ -40,10 +55,6 @@ upstream NeuTTS/OmniVoice metadata still pins the older Torch runtime.
 
 TinyTalk targets Python 3.13 with Torch/Torchaudio 2.11 and Transformers 5.17
 across the qualified backend environments.
-
-> OmniVoice source code is Apache-2.0, but the published `k2-fsa/OmniVoice`
-> checkpoint has its own non-commercial model license. Check the model card
-> before using those weights outside personal/research use.
 
 ## API
 
@@ -105,7 +116,11 @@ inputs.tinytalk.url = "github:datGryphon/tinytalk";
 ```
 
 Import `tinytalk.nixosModules.default` and configure `services.tinytalk`.
-NeuTTS remains the default:
+NeuTTS remains the default.
+
+The NixOS service rebuilds `/var/lib/tinytalk/app` from the immutable flake
+source on each start, runs `uv sync --frozen` there, and starts TinyTalk from
+the app-local `.venv`. Only uv's download cache persists between starts.
 
 ```nix
 services.tinytalk = {
@@ -214,6 +229,15 @@ from the PyTorch CPU index. `backboneDevice = "gpu"` still controls the NeuTTS
 GGUF backbone, but switching the Python runtime itself to CUDA now requires a
 separate lock/profile change rather than NixOS-only package overrides. The
 NeuCodec pipeline stays on CPU.
+
+## Releases
+
+Python Semantic Release runs after CI succeeds on pushes to `main`.
+Conventional commits determine the SemVer bump: `feat` is minor,
+`fix`/`perf` are patch, and a breaking change is major. `pyproject.toml`
+owns the package version; `tinytalk.__version__` reads the installed package
+metadata. A release updates `uv.lock`, writes the changelog, commits the version,
+tags `vX.Y.Z`, and creates the GitHub release. PyPI publishing is not configured.
 
 ## Development
 

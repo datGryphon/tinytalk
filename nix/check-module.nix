@@ -20,19 +20,15 @@ let
   omnivoice = evaluate "omnivoice" { };
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
-  usesLockedProject = service:
-    service.environment.TINYTALK_PROJECT_ROOT == "${self.outPath}"
-    && service.environment.TINYTALK_PYTHON_ENVIRONMENT == "/var/lib/tinytalk/python"
-    && lib.hasPrefix "/var/lib/tinytalk/python/bin/python " service.serviceConfig.ExecStart
-    && !(service.environment ? TINYTALK_RUNTIME_REQUIREMENTS)
-    && !(service.environment ? TINYTALK_RUNTIME_OVERRIDE)
-    && !(service.environment ? TINYTALK_PIP_EXTRA_INDEX_URLS);
+  usesAppDirectory = service:
+    service.serviceConfig.WorkingDirectory == "/var/lib/tinytalk/app"
+    && lib.hasPrefix "/var/lib/tinytalk/app/.venv/bin/python " service.serviceConfig.ExecStart;
 in
 assert lib.assertMsg (
-  usesLockedProject neutts
-  && usesLockedProject omnivoice
-  && usesLockedProject tinytauk
-) "TinyTalk services must sync and execute the locked project environment";
+  usesAppDirectory neutts
+  && usesAppDirectory omnivoice
+  && usesAppDirectory tinytauk
+) "TinyTalk services must sync and execute the writable app directory";
 assert lib.assertMsg (
   neutts.environment.TINYTALK_BACKEND == "neutts"
   && omnivoice.environment.TINYTALK_BACKEND == "omnivoice"

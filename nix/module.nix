@@ -4,7 +4,7 @@
 let
   cfg = config.services.tinytalk;
   python = pkgs.python313;
-  pythonEnvironment = "/var/lib/tinytalk/python";
+  appDirectory = "/var/lib/tinytalk/app";
 
   commonOptions = {
     enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
@@ -249,16 +249,10 @@ let
     else if cfg.backend == "omnivoice" then "16G"
     else "6000M";
 
-  prestart = pkgs.writeShellScript "tinytalk-prestart.sh" (
-    builtins.replaceStrings
-      [ "@python@" "@uv@" ]
-      [ "${python}" "${pkgs.uv}" ]
-      (builtins.readFile ./tinytalk-prestart.sh)
-  );
+  prestart = pkgs.writeShellScript "tinytalk-prestart.sh"
+    (builtins.readFile ./tinytalk-prestart.sh);
 
   runtimeEnvironment = {
-    TINYTALK_PROJECT_ROOT = "${self.outPath}";
-    TINYTALK_PYTHON_ENVIRONMENT = pythonEnvironment;
     LD_LIBRARY_PATH = lib.makeLibraryPath [
       pkgs.ffmpeg_8.lib
       pkgs.libsndfile
@@ -316,8 +310,9 @@ in
         ++ lib.optionals (cfg.backend == "tinytauk") [ pkgs.gcc pkgs.pkg-config ];
 
       serviceConfig = {
-        ExecStartPre = prestart;
-        ExecStart = "${pythonEnvironment}/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
+        ExecStartPre = "${prestart} ${self.outPath} ${appDirectory}";
+        WorkingDirectory = appDirectory;
+        ExecStart = "${appDirectory}/.venv/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
         User = "tinytalk";
         Group = "tinytalk";
         PrivateTmp = true;
