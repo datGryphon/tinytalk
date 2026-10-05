@@ -21,7 +21,8 @@ let
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
   usesAppDirectory = service:
-    service.serviceConfig.WorkingDirectory == "/var/lib/tinytalk/app"
+    service.serviceConfig.WorkingDirectory == "-/var/lib/tinytalk/app"
+    && lib.hasInfix "/var/lib/tinytalk/app" service.serviceConfig.ExecStartPre
     && lib.hasPrefix "/var/lib/tinytalk/app/.venv/bin/python " service.serviceConfig.ExecStart;
 in
 assert lib.assertMsg (
