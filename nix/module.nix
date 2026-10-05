@@ -311,7 +311,7 @@ in
 
       serviceConfig = {
         ExecStartPre = "${prestart} ${self.outPath} ${appDirectory}";
-        WorkingDirectory = appDirectory;
+        WorkingDirectory = "-${appDirectory}";
         ExecStart = "${appDirectory}/.venv/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
         User = "tinytalk";
         Group = "tinytalk";
