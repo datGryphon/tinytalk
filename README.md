@@ -130,8 +130,29 @@ to verify inference readiness. Failed starts are limited to three attempts
 per ten minutes rather than triggering an unlimited rebuild loop.
 
 TinyTalk supplies Nix-native CMake, GNU Make, and compiler dependencies.
-Selecting NeuTTS with `backboneDevice = "gpu"` additionally configures Vulkan
-and SPIR-V compilation. Hosts only need to select their GPU driver/ICD.
+NeuTTS keeps the runtime device separate from the compiled llama.cpp backend.
+The default is CPU. Select `llamaCppBackend = "vulkan"` or `"cuda"` alongside
+`backboneDevice = "gpu"`; the NixOS module configures the corresponding source
+build toolchain and keeps separate uv caches per acceleration backend.
+
+For example, Bean uses Vulkan:
+
+```nix
+services.tinytalk = {
+  enable = true;
+  backend = "neutts";
+  backboneDevice = "gpu";
+  llamaCppBackend = "vulkan";
+};
+```
+
+On NVIDIA hosts, select `llamaCppBackend = "cuda"` and optionally set
+`llamaCppCudaArchitectures = "61"` for Pascal. This is an **untested source
+build** using Nixpkgs CUDA 12, not a restoration of Bert's earlier
+`llama-cpp-python==0.3.26` CUDA wheel. TinyTalk's current Python 3.13 lock
+uses `llama-cpp-python==0.3.35`; Bert needs separate build, driver, and
+instruction-set validation before migration. The CUDA host must allow Nixpkgs'
+unfree CUDA packages. Do not assume CUDA is working from module evaluation alone.
 
 ```nix
 services.tinytalk = {
@@ -200,7 +221,9 @@ Key options:
 | `werThreshold` | `0.25` | Shared WER/CER acceptance threshold |
 | `model` | `neuphonic/neutts-nano-q4-gguf` | NeuTTS backbone |
 | `codec` | `neuphonic/neucodec-onnx-decoder-int8` | NeuTTS codec |
-| `backboneDevice` | `cpu` | NeuTTS `cpu` or `gpu` |
+| `backboneDevice` | `cpu` | NeuTTS runtime `cpu` or `gpu` |
+| `llamaCppBackend` | `cpu` | NeuTTS build `cpu`, `vulkan`, `cuda` |
+| `llamaCppCudaArchitectures` | `null` | Optional CUDA architecture (e.g. `61`) |
 | `refCodes` | `/var/lib/tinytalk/ref_codes.pt` | NeuTTS reference codes |
 | `refText` | `/var/lib/tinytalk/ref_text.txt` | NeuTTS reference transcript |
 | `tinytaukModel` | `tencent/AuK-Flash` | TinyTAuK model repository |
