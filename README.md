@@ -118,9 +118,14 @@ inputs.tinytalk.url = "github:datGryphon/tinytalk";
 Import `tinytalk.nixosModules.default` and configure `services.tinytalk`.
 NeuTTS remains the default.
 
-The NixOS service rebuilds `/var/lib/tinytalk/app` from the immutable flake
-source on each start, runs `uv sync --frozen` there, and starts TinyTalk from
-the app-local `.venv`. Only uv's download cache persists between starts.
+The NixOS service installs to `/var/lib/tinytalk/app` from the immutable
+flake source with `uv sync --frozen`. Ordinary restarts reuse the installed
+`.venv`; changing the TinyTalk source revision or backend, or retrying an
+incomplete install, wipes and reinstalls the app. uv's download cache persists.
+
+TinyTalk supplies Nix-native CMake, GNU Make, and compiler dependencies.
+Selecting NeuTTS with `backboneDevice = "gpu"` additionally configures Vulkan
+and SPIR-V compilation. Hosts only need to select their GPU driver/ICD.
 
 ```nix
 services.tinytalk = {
