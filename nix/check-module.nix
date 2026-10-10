@@ -22,9 +22,11 @@ let
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
   usesAppDirectory = service:
-    service.serviceConfig.WorkingDirectory == "-/var/lib/tinytalk/app"
-    && lib.hasInfix "/var/lib/tinytalk/app" service.serviceConfig.ExecStartPre
-    && lib.hasPrefix "/var/lib/tinytalk/app/.venv/bin/python " service.serviceConfig.ExecStart;
+    service.serviceConfig.WorkingDirectory == "/var/lib/tinytalk"
+    && service.serviceConfig.Type == "exec"
+    && !(service.serviceConfig ? ExecStartPre)
+    && lib.hasSuffix "-tinytalk-start" service.serviceConfig.ExecStart
+    && service.unitConfig.StartLimitBurst == 3;
 in
 assert lib.assertMsg (
   usesAppDirectory neutts
