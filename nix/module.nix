@@ -277,7 +277,7 @@ let
   neutts = cfg.backend == "neutts";
   vulkan = neutts && cfg.llamaCppBackend == "vulkan";
   cuda = neutts && cfg.llamaCppBackend == "cuda";
-  # CUDA 12 retains support for older NVIDIA cards such as Bert's Pascal GPU.
+  # Use a CUDA 12 toolchain for the optional NVIDIA source build.
   cudaPackages = pkgs.cudaPackages_12;
 
   buildEnvironment = lib.optionalAttrs neutts ({
