@@ -123,6 +123,12 @@ flake source with `uv sync --frozen`. Ordinary restarts reuse the installed
 `.venv`; changing the TinyTalk source revision or backend, or retrying an
 incomplete install, wipes and reinstalls the app. uv's download cache persists.
 
+Installation runs in the service launcher, not `ExecStartPre`, so lengthy
+compilation does not block NixOS activation or deploy-rs confirmation.
+`systemctl is-active` can report `active` during installation; use `/health`
+to verify inference readiness. Failed starts are limited to three attempts
+per ten minutes rather than triggering an unlimited rebuild loop.
+
 TinyTalk supplies Nix-native CMake, GNU Make, and compiler dependencies.
 Selecting NeuTTS with `backboneDevice = "gpu"` additionally configures Vulkan
 and SPIR-V compilation. Hosts only need to select their GPU driver/ICD.
