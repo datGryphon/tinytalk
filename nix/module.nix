@@ -79,6 +79,18 @@ let
       description = "NeuTTS GGUF backbone device.";
     };
 
+    llamaCppBackend = lib.mkOption {
+      type = lib.types.enum [ "cpu" "vulkan" "cuda" ];
+      default = "cpu";
+      description = "llama-cpp-python acceleration backend for NeuTTS; select independently from the runtime device.";
+    };
+
+    llamaCppCudaArchitectures = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Optional CMake CUDA architectures (e.g. 61 for NVIDIA Pascal).";
+    };
+
     refCodes = lib.mkOption {
       type = lib.types.path;
       default = "/var/lib/tinytalk/ref_codes.pt";
@@ -262,10 +274,13 @@ let
       --host "$TINYTALK_HOST" --port "$TINYTALK_PORT"
   '';
 
-  vulkan = cfg.backend == "neutts" && cfg.backboneDevice == "gpu";
+  neutts = cfg.backend == "neutts";
+  vulkan = neutts && cfg.llamaCppBackend == "vulkan";
+  cuda = neutts && cfg.llamaCppBackend == "cuda";
+  # CUDA 12 retains support for older NVIDIA cards such as Bert's Pascal GPU.
+  cudaPackages = pkgs.cudaPackages_12;
 
-  # Own the native build environment here, not in each host configuration.
-  buildEnvironment = {
+  buildEnvironment = lib.optionalAttrs neutts ({
     CMAKE_EXECUTABLE = "${pkgs.cmake}/bin/cmake";
     CMAKE_GENERATOR = "Unix Makefiles";
   } // lib.optionalAttrs vulkan {
@@ -277,19 +292,36 @@ let
       "-DVulkan_LIBRARY=${pkgs.vulkan-loader}/lib/libvulkan.so"
       "-DCMAKE_CXX_FLAGS=-I${pkgs.spirv-headers}/include"
     ];
-  };
+  } // lib.optionalAttrs cuda {
+    CUDA_HOME = "${cudaPackages.cudatoolkit}";
+    CUDAToolkit_ROOT = "${cudaPackages.cudatoolkit}";
+    CMAKE_ARGS = lib.concatStringsSep " " (
+      [ "-DGGML_CUDA=on" ]
+      ++ lib.optionals (cfg.llamaCppCudaArchitectures != null) [
+        "-DCMAKE_CUDA_ARCHITECTURES=${cfg.llamaCppCudaArchitectures}"
+      ]
+    );
+  });
 
   runtimeEnvironment = {
-    LD_LIBRARY_PATH = lib.makeLibraryPath (
-      [
-        pkgs.ffmpeg_8.lib
-        pkgs.libsndfile
-        pkgs.stdenv.cc.cc.lib
-        pkgs.zlib
-      ] ++ lib.optionals vulkan [ pkgs.vulkan-loader ]
+    LD_LIBRARY_PATH = lib.concatStringsSep ":" (
+      lib.optionals cuda [ "/run/opengl-driver/lib" ]
+      ++ [
+        (lib.makeLibraryPath (
+          [
+            pkgs.ffmpeg_8.lib
+            pkgs.libsndfile
+            pkgs.stdenv.cc.cc.lib
+            pkgs.zlib
+          ] ++ lib.optionals vulkan [ pkgs.vulkan-loader ]
+            ++ lib.optionals cuda [ cudaPackages.cuda_cudart cudaPackages.libcublas ]
+        ))
+      ]
     );
     HOME = "/var/lib/tinytalk";
-    UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
+    # uv caches built native wheels: do not share Vulkan/CPU/CUDA variants.
+    UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv/${if neutts then "neutts-${cfg.llamaCppBackend}" else cfg.backend}";
+    TINYTALK_LLAMA_CPP_BACKEND = if neutts then cfg.llamaCppBackend else "none";
   };
 in
 {
@@ -303,6 +335,20 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = cfg.backend != "neutts"
+          || ((cfg.backboneDevice == "gpu") == (cfg.llamaCppBackend != "cpu"));
+        message = "services.tinytalk: NeuTTS backboneDevice=gpu requires llamaCppBackend=vulkan or cuda; cpu requires llamaCppBackend=cpu";
+      }
+      {
+        assertion = cfg.backend == "neutts"
+          || (cfg.llamaCppBackend == "cpu" && cfg.llamaCppCudaArchitectures == null);
+        message = "services.tinytalk: llamaCpp options are only applicable to the neutts backend";
+      }
+      {
+        assertion = cfg.llamaCppBackend == "cuda" || cfg.llamaCppCudaArchitectures == null;
+        message = "services.tinytalk.llamaCppCudaArchitectures requires llamaCppBackend=cuda";
+      }
       {
         assertion = cfg.backend != "tinytauk" || cfg.tinytaukCharsPerSecond > 0.0;
         message = "services.tinytalk.tinytaukCharsPerSecond must be positive";
@@ -335,16 +381,17 @@ in
         // runtimeEnvironment
         // buildEnvironment;
 
-      path = [
-        pkgs.coreutils
-        pkgs.uv
-        python
-        pkgs.ffmpeg-headless
-        pkgs.gcc
-        pkgs.cmake
-        pkgs.gnumake
-        pkgs.pkg-config
-      ] ++ lib.optionals vulkan [ pkgs.shaderc ];
+      path =
+        [ pkgs.coreutils pkgs.uv python pkgs.ffmpeg-headless ]
+        ++ lib.optionals neutts [ pkgs.gcc pkgs.cmake pkgs.gnumake pkgs.pkg-config ]
+        ++ lib.optionals (cfg.backend == "tinytauk") [ pkgs.gcc pkgs.pkg-config ]
+        ++ lib.optionals vulkan [ pkgs.shaderc ]
+        ++ lib.optionals cuda [
+          cudaPackages.cuda_nvcc
+          cudaPackages.cuda_cudart
+          cudaPackages.libcublas
+          cudaPackages.cccl
+        ];
 
       # A failed build should not retry indefinitely.
       unitConfig = {
