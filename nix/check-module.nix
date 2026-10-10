@@ -11,6 +11,8 @@ let
         self.nixosModules.default
         {
           system.stateVersion = "25.11";
+          # CUDA toolchain packages are unfree; permit evaluation in this test.
+          nixpkgs.config.allowUnfree = true;
           services.tinytalk = { enable = true; inherit backend; } // options;
         }
       ];
