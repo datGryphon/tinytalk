@@ -259,6 +259,8 @@ let
     CMAKE_EXECUTABLE = "${pkgs.cmake}/bin/cmake";
     CMAKE_GENERATOR = "Unix Makefiles";
   } // lib.optionalAttrs vulkan {
+    # ggml-vulkan uses find_package(SPIRV-Headers CONFIG REQUIRED).
+    CMAKE_PREFIX_PATH = "${pkgs.spirv-headers}";
     CMAKE_ARGS = lib.concatStringsSep " " [
       "-DGGML_VULKAN=on"
       "-DVulkan_INCLUDE_DIR=${pkgs.vulkan-headers}/include"
