@@ -252,13 +252,30 @@ let
   prestart = pkgs.writeShellScript "tinytalk-prestart.sh"
     (builtins.readFile ./tinytalk-prestart.sh);
 
-  runtimeEnvironment = {
-    LD_LIBRARY_PATH = lib.makeLibraryPath [
-      pkgs.ffmpeg_8.lib
-      pkgs.libsndfile
-      pkgs.stdenv.cc.cc.lib
-      pkgs.zlib
+  vulkan = cfg.backend == "neutts" && cfg.backboneDevice == "gpu";
+
+  # Own the native build environment here, not in each host configuration.
+  buildEnvironment = {
+    CMAKE_EXECUTABLE = "${pkgs.cmake}/bin/cmake";
+    CMAKE_GENERATOR = "Unix Makefiles";
+  } // lib.optionalAttrs vulkan {
+    CMAKE_ARGS = lib.concatStringsSep " " [
+      "-DGGML_VULKAN=on"
+      "-DVulkan_INCLUDE_DIR=${pkgs.vulkan-headers}/include"
+      "-DVulkan_LIBRARY=${pkgs.vulkan-loader}/lib/libvulkan.so"
+      "-DCMAKE_CXX_FLAGS=-I${pkgs.spirv-headers}/include"
     ];
+  };
+
+  runtimeEnvironment = {
+    LD_LIBRARY_PATH = lib.makeLibraryPath (
+      [
+        pkgs.ffmpeg_8.lib
+        pkgs.libsndfile
+        pkgs.stdenv.cc.cc.lib
+        pkgs.zlib
+      ] ++ lib.optionals vulkan [ pkgs.vulkan-loader ]
+    );
     HOME = "/var/lib/tinytalk";
     UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv";
   };
@@ -303,11 +320,19 @@ in
         commonEnvironment
         // qualityEnvironment
         // backendEnvironment
-        // runtimeEnvironment;
+        // runtimeEnvironment
+        // buildEnvironment;
 
-      path =
-        [ pkgs.coreutils pkgs.uv python pkgs.ffmpeg-headless ]
-        ++ lib.optionals (cfg.backend == "tinytauk") [ pkgs.gcc pkgs.pkg-config ];
+      path = [
+        pkgs.coreutils
+        pkgs.uv
+        python
+        pkgs.ffmpeg-headless
+        pkgs.gcc
+        pkgs.cmake
+        pkgs.gnumake
+        pkgs.pkg-config
+      ] ++ lib.optionals vulkan [ pkgs.shaderc ];
 
       serviceConfig = {
         ExecStartPre = "${prestart} ${self.outPath} ${appDirectory}";
