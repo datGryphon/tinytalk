@@ -45,6 +45,8 @@ assert lib.assertMsg (
   neutts.environment.CMAKE_EXECUTABLE == "${pkgs.cmake}/bin/cmake"
   && neutts.environment.CMAKE_GENERATOR == "Unix Makefiles"
   && !(neutts.environment ? CMAKE_ARGS)
+  && !(neutts.environment ? CMAKE_PREFIX_PATH)
+  && neuttsGpu.environment.CMAKE_PREFIX_PATH == "${pkgs.spirv-headers}"
   && lib.elem pkgs.cmake neutts.path
   && lib.elem pkgs.gnumake neutts.path
   && lib.elem pkgs.shaderc neuttsGpu.path
