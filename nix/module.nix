@@ -252,6 +252,16 @@ let
   prestart = pkgs.writeShellScript "tinytalk-prestart.sh"
     (builtins.readFile ./tinytalk-prestart.sh);
 
+  # Keep dependency installation out of ExecStartPre: compilation must not
+  # block NixOS activation and deploy-rs confirmation.
+  start = pkgs.writeShellScript "tinytalk-start" ''
+    set -euo pipefail
+    ${prestart} ${self.outPath} ${appDirectory}
+    cd ${appDirectory}
+    exec .venv/bin/python -m uvicorn tinytalk.server:app \
+      --host "$TINYTALK_HOST" --port "$TINYTALK_PORT"
+  '';
+
   vulkan = cfg.backend == "neutts" && cfg.backboneDevice == "gpu";
 
   # Own the native build environment here, not in each host configuration.
@@ -336,10 +346,16 @@ in
         pkgs.pkg-config
       ] ++ lib.optionals vulkan [ pkgs.shaderc ];
 
+      # A failed build should not retry indefinitely.
+      unitConfig = {
+        StartLimitIntervalSec = "10min";
+        StartLimitBurst = 3;
+      };
+
       serviceConfig = {
-        ExecStartPre = "${prestart} ${self.outPath} ${appDirectory}";
-        WorkingDirectory = "-${appDirectory}";
-        ExecStart = "${appDirectory}/.venv/bin/python -m uvicorn tinytalk.server:app --host ${cfg.host} --port ${toString cfg.port}";
+        Type = "exec";
+        WorkingDirectory = "/var/lib/tinytalk";
+        ExecStart = "${start}";
         User = "tinytalk";
         Group = "tinytalk";
         PrivateTmp = true;
