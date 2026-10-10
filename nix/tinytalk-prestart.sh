@@ -5,7 +5,7 @@ source_root="${1:?source path required}"
 app="${2:-/var/lib/tinytalk/app}"
 backend="${TINYTALK_BACKEND:?}"
 stamp="$app/.tinytalk-installed"
-revision="$source_root:$backend"
+revision="$source_root:$backend:${TINYTALK_LLAMA_CPP_BACKEND:-none}"
 
 # Reuse successful installations on ordinary restarts. A source/backend change
 # or interrupted install starts clean; the uv download cache is retained.

@@ -130,8 +130,29 @@ to verify inference readiness. Failed starts are limited to three attempts
 per ten minutes rather than triggering an unlimited rebuild loop.
 
 TinyTalk supplies Nix-native CMake, GNU Make, and compiler dependencies.
-Selecting NeuTTS with `backboneDevice = "gpu"` additionally configures Vulkan
-and SPIR-V compilation. Hosts only need to select their GPU driver/ICD.
+NeuTTS keeps the runtime device separate from the compiled llama.cpp backend.
+The default is CPU. Select `llamaCppBackend = "vulkan"` or `"cuda"` alongside
+`backboneDevice = "gpu"`; the NixOS module configures the corresponding source
+build toolchain and keeps separate uv caches per acceleration backend.
+
+Example Vulkan configuration:
+
+```nix
+services.tinytalk = {
+  enable = true;
+  backend = "neutts";
+  backboneDevice = "gpu";
+  llamaCppBackend = "vulkan";
+};
+```
+
+For NVIDIA GPUs, select `llamaCppBackend = "cuda"` and optionally set
+`llamaCppCudaArchitectures` to the target GPU's compute capability (for
+example, `"61"` for Pascal). CUDA source builds use Nixpkgs CUDA 12 and
+the locked `llama-cpp-python==0.3.35` with Python 3.13. This path is
+**experimental and not validated by a CUDA runtime test**; confirm the GPU,
+driver, toolkit, and CPU compatibility before deployment. Nixpkgs CUDA
+packages require `allowUnfree`.
 
 ```nix
 services.tinytalk = {
@@ -200,7 +221,9 @@ Key options:
 | `werThreshold` | `0.25` | Shared WER/CER acceptance threshold |
 | `model` | `neuphonic/neutts-nano-q4-gguf` | NeuTTS backbone |
 | `codec` | `neuphonic/neucodec-onnx-decoder-int8` | NeuTTS codec |
-| `backboneDevice` | `cpu` | NeuTTS `cpu` or `gpu` |
+| `backboneDevice` | `cpu` | NeuTTS runtime `cpu` or `gpu` |
+| `llamaCppBackend` | `cpu` | NeuTTS build `cpu`, `vulkan`, `cuda` |
+| `llamaCppCudaArchitectures` | `null` | Optional CUDA architecture (e.g. `61`) |
 | `refCodes` | `/var/lib/tinytalk/ref_codes.pt` | NeuTTS reference codes |
 | `refText` | `/var/lib/tinytalk/ref_text.txt` | NeuTTS reference transcript |
 | `tinytaukModel` | `tencent/AuK-Flash` | TinyTAuK model repository |
