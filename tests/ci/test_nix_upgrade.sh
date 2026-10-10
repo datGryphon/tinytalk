@@ -25,3 +25,10 @@ UV_CACHE_DIR="$tmp/cache" \
 cmp "$tmp/source/tinytalk/__init__.py" "$tmp/app/tinytalk/__init__.py"
 test -x "$tmp/app/.venv/bin/python"
 "$tmp/app/.venv/bin/python" -I -c 'import tinytalk'
+
+# Ordinary service restarts must not wipe an already synchronized environment.
+touch "$tmp/app/.restart-survived"
+TINYTALK_BACKEND=neutts \
+UV_CACHE_DIR="$tmp/cache" \
+  "$repo/nix/tinytalk-prestart.sh" "$tmp/source" "$tmp/app"
+test -f "$tmp/app/.restart-survived"
