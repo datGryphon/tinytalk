@@ -17,6 +17,7 @@ let
     }).config.systemd.services.tinytalk;
 
   neutts = evaluate "neutts" { };
+  neuttsGpu = evaluate "neutts" { backboneDevice = "gpu"; };
   omnivoice = evaluate "omnivoice" { };
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
@@ -39,5 +40,18 @@ assert lib.assertMsg (
   tinytauk.environment.TINYTALK_TINYTAUK_PROFILE == "${profile}"
   && lib.hasInfix "ffmpeg" tinytauk.environment.LD_LIBRARY_PATH
 ) "TinyTAuK service must forward its profile and provide FFmpeg libraries";
+
+assert lib.assertMsg (
+  neutts.environment.CMAKE_EXECUTABLE == "${pkgs.cmake}/bin/cmake"
+  && neutts.environment.CMAKE_GENERATOR == "Unix Makefiles"
+  && !(neutts.environment ? CMAKE_ARGS)
+  && lib.elem pkgs.cmake neutts.path
+  && lib.elem pkgs.gnumake neutts.path
+  && lib.elem pkgs.shaderc neuttsGpu.path
+  && lib.hasInfix "GGML_VULKAN=on" neuttsGpu.environment.CMAKE_ARGS
+  && lib.hasInfix "${pkgs.spirv-headers}/include" neuttsGpu.environment.CMAKE_ARGS
+  && lib.hasInfix "${pkgs.vulkan-loader}/lib/libvulkan.so" neuttsGpu.environment.CMAKE_ARGS
+  && lib.hasInfix "${pkgs.vulkan-loader}/lib" neuttsGpu.environment.LD_LIBRARY_PATH
+) "TinyTalk must provide CMake/Make and NeuTTS GPU Vulkan build inputs";
 
 pkgs.runCommand "tinytalk-nixos-module-check" { } "touch $out"
