@@ -135,7 +135,7 @@ The default is CPU. Select `llamaCppBackend = "vulkan"` or `"cuda"` alongside
 `backboneDevice = "gpu"`; the NixOS module configures the corresponding source
 build toolchain and keeps separate uv caches per acceleration backend.
 
-For example, Bean uses Vulkan:
+Example Vulkan configuration:
 
 ```nix
 services.tinytalk = {
@@ -146,13 +146,13 @@ services.tinytalk = {
 };
 ```
 
-On NVIDIA hosts, select `llamaCppBackend = "cuda"` and optionally set
-`llamaCppCudaArchitectures = "61"` for Pascal. This is an **untested source
-build** using Nixpkgs CUDA 12, not a restoration of Bert's earlier
-`llama-cpp-python==0.3.26` CUDA wheel. TinyTalk's current Python 3.13 lock
-uses `llama-cpp-python==0.3.35`; Bert needs separate build, driver, and
-instruction-set validation before migration. The CUDA host must allow Nixpkgs'
-unfree CUDA packages. Do not assume CUDA is working from module evaluation alone.
+For NVIDIA GPUs, select `llamaCppBackend = "cuda"` and optionally set
+`llamaCppCudaArchitectures` to the target GPU's compute capability (for
+example, `"61"` for Pascal). CUDA source builds use Nixpkgs CUDA 12 and
+the locked `llama-cpp-python==0.3.35` with Python 3.13. This path is
+**experimental and not validated by a CUDA runtime test**; confirm the GPU,
+driver, toolkit, and CPU compatibility before deployment. Nixpkgs CUDA
+packages require `allowUnfree`.
 
 ```nix
 services.tinytalk = {
