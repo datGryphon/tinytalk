@@ -277,23 +277,8 @@ let
   neutts = cfg.backend == "neutts";
   vulkan = neutts && cfg.llamaCppBackend == "vulkan";
   cuda = neutts && cfg.llamaCppBackend == "cuda";
-  # Bundle the split Nixpkgs CUDA outputs into a conventional toolkit tree.
-  # This exposes nvcc, CUDA/CCCL/cuBLAS headers, and static/shared libraries
-  # together, instead of chasing individual missing include and link paths.
   cudaPackages = pkgs.cudaPackages_12;
-  cudaToolkit = pkgs.buildEnv {
-    name = "tinytalk-cuda-toolkit";
-    paths = [
-      (lib.getBin cudaPackages.cuda_nvcc)
-      (lib.getDev cudaPackages.cuda_cudart)
-      (lib.getOutput "static" cudaPackages.cuda_cudart)
-      (lib.getLib cudaPackages.cuda_cudart)
-      (lib.getDev cudaPackages.cuda_cccl)
-      (lib.getDev cudaPackages.libcublas)
-      (lib.getLib cudaPackages.libcublas)
-    ];
-    ignoreCollisions = true;
-  };
+  cudaToolkit = cudaPackages.cudatoolkit;
 
   buildEnvironment = lib.optionalAttrs neutts ({
     CMAKE_EXECUTABLE = "${pkgs.cmake}/bin/cmake";
@@ -402,12 +387,7 @@ in
         ++ lib.optionals neutts [ pkgs.gcc pkgs.cmake pkgs.gnumake pkgs.pkg-config ]
         ++ lib.optionals (cfg.backend == "tinytauk") [ pkgs.gcc pkgs.pkg-config ]
         ++ lib.optionals vulkan [ pkgs.shaderc pkgs.glslang ]
-        ++ lib.optionals cuda [
-          cudaPackages.cuda_nvcc
-          cudaPackages.cuda_cudart
-          cudaPackages.libcublas
-          cudaPackages.cuda_cccl
-        ];
+        ++ lib.optionals cuda [ cudaToolkit ];
 
       # A failed build should not retry indefinitely.
       unitConfig = {

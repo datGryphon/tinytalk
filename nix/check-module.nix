@@ -20,6 +20,11 @@ let
 
   neutts = evaluate "neutts" { };
   neuttsGpu = evaluate "neutts" { backboneDevice = "gpu"; llamaCppBackend = "vulkan"; };
+  neuttsCuda = evaluate "neutts" {
+    backboneDevice = "gpu";
+    llamaCppBackend = "cuda";
+    llamaCppCudaArchitectures = "61";
+  };
   omnivoice = evaluate "omnivoice" { };
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
@@ -48,6 +53,9 @@ assert lib.assertMsg (
 assert lib.assertMsg (
   neutts.environment.TINYTALK_LLAMA_CPP_BACKEND == "cpu"
   && neuttsGpu.environment.TINYTALK_LLAMA_CPP_BACKEND == "vulkan"
+  && neuttsCuda.environment.TINYTALK_LLAMA_CPP_BACKEND == "cuda"
+  && lib.hasInfix "cuda-merged" neuttsCuda.environment.CUDA_HOME
+  && lib.elem pkgs.cudaPackages_12.cudatoolkit neuttsCuda.path
   && neutts.environment.UV_CACHE_DIR != neuttsGpu.environment.UV_CACHE_DIR
   && lib.elem pkgs.glslang neuttsGpu.path
 ) "TinyTalk must isolate native wheel caches by NeuTTS acceleration backend";
