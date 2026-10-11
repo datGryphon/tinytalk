@@ -295,6 +295,12 @@ let
   } // lib.optionalAttrs cuda {
     CUDA_HOME = "${cudaPackages.cudatoolkit}";
     CUDAToolkit_ROOT = "${cudaPackages.cudatoolkit}";
+    # Nixpkgs ships nvcc and CUDA runtime headers in separate outputs.
+    # Include both during CMake's initial CUDA compiler detection.
+    NVCC_PREPEND_FLAGS = lib.concatStringsSep " " [
+      "-I${lib.getDev cudaPackages.cuda_cudart}/include"
+      "-I${lib.getDev cudaPackages.cccl}/include"
+    ];
     CMAKE_ARGS = lib.concatStringsSep " " (
       [ "-DGGML_CUDA=on" ]
       ++ lib.optionals (cfg.llamaCppCudaArchitectures != null) [
