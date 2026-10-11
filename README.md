@@ -118,22 +118,21 @@ inputs.tinytalk.url = "github:datGryphon/tinytalk";
 Import `tinytalk.nixosModules.default` and configure `services.tinytalk`.
 NeuTTS remains the default.
 
-The NixOS service installs to `/var/lib/tinytalk/app` from the immutable
-flake source with `uv sync --frozen`. Ordinary restarts reuse the installed
-`.venv`; changing the TinyTalk source revision or backend, or retrying an
-incomplete install, wipes and reinstalls the app. uv's download cache persists.
+The NixOS service links its immutable flake source into
+`/var/lib/tinytalk/app` and runs `uv sync --frozen` there. Ordinary restarts
+reuse the installed `.venv` and uv download cache; a source, lockfile, or
+backend change updates only what changed.
 
-Installation runs in the service launcher, not `ExecStartPre`, so lengthy
-compilation does not block NixOS activation or deploy-rs confirmation.
+Installation runs in the service launcher, not `ExecStartPre`, so a changed
+environment does not block NixOS activation or deploy-rs confirmation.
 `systemctl is-active` can report `active` during installation; use `/health`
-to verify inference readiness. Failed starts are limited to three attempts
-per ten minutes rather than triggering an unlimited rebuild loop.
+to verify inference readiness.
 
 TinyTalk supplies Nix-native CMake, GNU Make, and compiler dependencies.
 NeuTTS keeps the runtime device separate from the compiled llama.cpp backend.
 The default is CPU. Select `llamaCppBackend = "vulkan"` or `"cuda"` alongside
 `backboneDevice = "gpu"`; the NixOS module configures the corresponding source
-build toolchain and keeps separate uv caches per acceleration backend.
+build toolchain.
 
 Example Vulkan configuration:
 

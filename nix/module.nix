@@ -288,7 +288,7 @@ let
       (lib.getDev cudaPackages.cuda_cudart)
       (lib.getOutput "static" cudaPackages.cuda_cudart)
       (lib.getLib cudaPackages.cuda_cudart)
-      (lib.getDev cudaPackages.cccl)
+      (lib.getDev cudaPackages.cuda_cccl)
       (lib.getDev cudaPackages.libcublas)
       (lib.getLib cudaPackages.libcublas)
     ];
@@ -335,7 +335,7 @@ let
       ]
     );
     HOME = "/var/lib/tinytalk";
-    # uv caches built native wheels: do not share Vulkan/CPU/CUDA variants.
+    # Keep the compiled native wheel variants separate in the persistent uv cache.
     UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv/${if neutts then "neutts-${cfg.llamaCppBackend}" else cfg.backend}";
     TINYTALK_LLAMA_CPP_BACKEND = if neutts then cfg.llamaCppBackend else "none";
   };
@@ -406,7 +406,7 @@ in
           cudaPackages.cuda_nvcc
           cudaPackages.cuda_cudart
           cudaPackages.libcublas
-          cudaPackages.cccl
+          cudaPackages.cuda_cccl
         ];
 
       # A failed build should not retry indefinitely.
@@ -417,7 +417,7 @@ in
 
       serviceConfig = {
         Type = "exec";
-        WorkingDirectory = "/var/lib/tinytalk";
+        WorkingDirectory = appDirectory;
         ExecStart = "${start}";
         User = "tinytalk";
         Group = "tinytalk";
