@@ -49,6 +49,7 @@ assert lib.assertMsg (
   neutts.environment.TINYTALK_LLAMA_CPP_BACKEND == "cpu"
   && neuttsGpu.environment.TINYTALK_LLAMA_CPP_BACKEND == "vulkan"
   && neutts.environment.UV_CACHE_DIR != neuttsGpu.environment.UV_CACHE_DIR
+  && lib.elem pkgs.glslang neuttsGpu.path
 ) "TinyTalk must isolate native wheel caches by NeuTTS acceleration backend";
 
 pkgs.runCommand "tinytalk-nixos-module-check" { } "touch $out"

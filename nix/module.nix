@@ -401,7 +401,7 @@ in
         [ pkgs.coreutils pkgs.uv python pkgs.ffmpeg-headless ]
         ++ lib.optionals neutts [ pkgs.gcc pkgs.cmake pkgs.gnumake pkgs.pkg-config ]
         ++ lib.optionals (cfg.backend == "tinytauk") [ pkgs.gcc pkgs.pkg-config ]
-        ++ lib.optionals vulkan [ pkgs.shaderc ]
+        ++ lib.optionals vulkan [ pkgs.shaderc pkgs.glslang ]
         ++ lib.optionals cuda [
           cudaPackages.cuda_nvcc
           cudaPackages.cuda_cudart
