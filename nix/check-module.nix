@@ -60,6 +60,7 @@ assert lib.assertMsg (
   && neuttsCuda.environment.CUDAToolkit_ROOT == "${pkgs.cudaPackages_12.cudatoolkit}"
   && lib.hasInfix "-I${lib.getDev pkgs.cudaPackages_12.cuda_cudart}/include" neuttsCuda.environment.NVCC_PREPEND_FLAGS
   && lib.hasInfix "-I${lib.getDev pkgs.cudaPackages_12.cccl}/include" neuttsCuda.environment.NVCC_PREPEND_FLAGS
+  && lib.hasInfix "-L${lib.getOutput "static" pkgs.cudaPackages_12.cuda_cudart}/lib" neuttsCuda.environment.NVCC_PREPEND_FLAGS
   && !(neuttsGpu.environment ? NVCC_PREPEND_FLAGS)
   && lib.hasInfix "GGML_CUDA=on" neuttsCuda.environment.CMAKE_ARGS
   && lib.hasInfix "CMAKE_CUDA_ARCHITECTURES=61" neuttsCuda.environment.CMAKE_ARGS
