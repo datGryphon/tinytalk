@@ -277,8 +277,23 @@ let
   neutts = cfg.backend == "neutts";
   vulkan = neutts && cfg.llamaCppBackend == "vulkan";
   cuda = neutts && cfg.llamaCppBackend == "cuda";
-  # Use a CUDA 12 toolchain for the optional NVIDIA source build.
+  # Bundle the split Nixpkgs CUDA outputs into a conventional toolkit tree.
+  # This exposes nvcc, CUDA/CCCL/cuBLAS headers, and static/shared libraries
+  # together, instead of chasing individual missing include and link paths.
   cudaPackages = pkgs.cudaPackages_12;
+  cudaToolkit = pkgs.buildEnv {
+    name = "tinytalk-cuda-toolkit";
+    paths = [
+      (lib.getBin cudaPackages.cuda_nvcc)
+      (lib.getDev cudaPackages.cuda_cudart)
+      (lib.getOutput "static" cudaPackages.cuda_cudart)
+      (lib.getLib cudaPackages.cuda_cudart)
+      (lib.getDev cudaPackages.cccl)
+      (lib.getDev cudaPackages.libcublas)
+      (lib.getLib cudaPackages.libcublas)
+    ];
+    ignoreCollisions = true;
+  };
 
   buildEnvironment = lib.optionalAttrs neutts ({
     CMAKE_EXECUTABLE = "${pkgs.cmake}/bin/cmake";
@@ -293,16 +308,9 @@ let
       "-DCMAKE_CXX_FLAGS=-I${pkgs.spirv-headers}/include"
     ];
   } // lib.optionalAttrs cuda {
-    CUDA_HOME = "${cudaPackages.cudatoolkit}";
-    CUDAToolkit_ROOT = "${cudaPackages.cudatoolkit}";
-    # Nixpkgs ships nvcc and CUDA runtime headers in separate outputs.
-    # Include both during CMake's initial CUDA compiler detection.
-    NVCC_PREPEND_FLAGS = lib.concatStringsSep " " [
-      "-I${lib.getDev cudaPackages.cuda_cudart}/include"
-      "-I${lib.getDev cudaPackages.cccl}/include"
-      # nvcc implicitly links libcudadevrt.a and libcudart_static.a.
-      "-L${lib.getOutput "static" cudaPackages.cuda_cudart}/lib"
-    ];
+    CUDA_HOME = "${cudaToolkit}";
+    CUDAToolkit_ROOT = "${cudaToolkit}";
+    NVCC_PREPEND_FLAGS = "-I${cudaToolkit}/include -L${cudaToolkit}/lib";
     CMAKE_ARGS = lib.concatStringsSep " " (
       [ "-DGGML_CUDA=on" ]
       ++ lib.optionals (cfg.llamaCppCudaArchitectures != null) [
