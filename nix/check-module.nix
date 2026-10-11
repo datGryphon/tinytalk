@@ -56,11 +56,10 @@ assert lib.assertMsg (
   && !(neutts.environment ? CMAKE_ARGS)
   && !(neutts.environment ? CMAKE_PREFIX_PATH)
   && neuttsGpu.environment.CMAKE_PREFIX_PATH == "${pkgs.spirv-headers}"
-  && neuttsCuda.environment.CUDA_HOME == "${pkgs.cudaPackages_12.cudatoolkit}"
-  && neuttsCuda.environment.CUDAToolkit_ROOT == "${pkgs.cudaPackages_12.cudatoolkit}"
-  && lib.hasInfix "-I${lib.getDev pkgs.cudaPackages_12.cuda_cudart}/include" neuttsCuda.environment.NVCC_PREPEND_FLAGS
-  && lib.hasInfix "-I${lib.getDev pkgs.cudaPackages_12.cccl}/include" neuttsCuda.environment.NVCC_PREPEND_FLAGS
-  && lib.hasInfix "-L${lib.getOutput "static" pkgs.cudaPackages_12.cuda_cudart}/lib" neuttsCuda.environment.NVCC_PREPEND_FLAGS
+  && lib.hasInfix "tinytalk-cuda-toolkit" neuttsCuda.environment.CUDA_HOME
+  && neuttsCuda.environment.CUDAToolkit_ROOT == neuttsCuda.environment.CUDA_HOME
+  && neuttsCuda.environment.NVCC_PREPEND_FLAGS ==
+    "-I${neuttsCuda.environment.CUDA_HOME}/include -L${neuttsCuda.environment.CUDA_HOME}/lib"
   && !(neuttsGpu.environment ? NVCC_PREPEND_FLAGS)
   && lib.hasInfix "GGML_CUDA=on" neuttsCuda.environment.CMAKE_ARGS
   && lib.hasInfix "CMAKE_CUDA_ARCHITECTURES=61" neuttsCuda.environment.CMAKE_ARGS
