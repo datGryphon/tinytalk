@@ -300,6 +300,8 @@ let
     NVCC_PREPEND_FLAGS = lib.concatStringsSep " " [
       "-I${lib.getDev cudaPackages.cuda_cudart}/include"
       "-I${lib.getDev cudaPackages.cccl}/include"
+      # nvcc implicitly links libcudadevrt.a and libcudart_static.a.
+      "-L${lib.getOutput "static" cudaPackages.cuda_cudart}/lib"
     ];
     CMAKE_ARGS = lib.concatStringsSep " " (
       [ "-DGGML_CUDA=on" ]
