@@ -118,9 +118,40 @@ inputs.tinytalk.url = "github:datGryphon/tinytalk";
 Import `tinytalk.nixosModules.default` and configure `services.tinytalk`.
 NeuTTS remains the default.
 
-The NixOS service rebuilds `/var/lib/tinytalk/app` from the immutable flake
-source on each start, runs `uv sync --frozen` there, and starts TinyTalk from
-the app-local `.venv`. Only uv's download cache persists between starts.
+The NixOS service links its immutable flake source into
+`/var/lib/tinytalk/app` and runs `uv sync --frozen` there. Ordinary restarts
+reuse the installed `.venv` and uv download cache; a source, lockfile, or
+backend change updates only what changed.
+
+Installation runs in the service launcher, not `ExecStartPre`, so a changed
+environment does not block NixOS activation or deploy-rs confirmation.
+`systemctl is-active` can report `active` during installation; use `/health`
+to verify inference readiness.
+
+TinyTalk supplies Nix-native CMake, GNU Make, and compiler dependencies.
+NeuTTS keeps the runtime device separate from the compiled llama.cpp backend.
+The default is CPU. Select `llamaCppBackend = "vulkan"` or `"cuda"` alongside
+`backboneDevice = "gpu"`; the NixOS module configures the corresponding source
+build toolchain.
+
+Example Vulkan configuration:
+
+```nix
+services.tinytalk = {
+  enable = true;
+  backend = "neutts";
+  backboneDevice = "gpu";
+  llamaCppBackend = "vulkan";
+};
+```
+
+For NVIDIA GPUs, select `llamaCppBackend = "cuda"` and optionally set
+`llamaCppCudaArchitectures` to the target GPU's compute capability (for
+example, `"61"` for Pascal). CUDA source builds use Nixpkgs CUDA 12 and
+the locked `llama-cpp-python==0.3.35` with Python 3.13. This path is
+**experimental and not validated by a CUDA runtime test**; confirm the GPU,
+driver, toolkit, and CPU compatibility before deployment. Nixpkgs CUDA
+packages require `allowUnfree`.
 
 ```nix
 services.tinytalk = {
@@ -189,7 +220,9 @@ Key options:
 | `werThreshold` | `0.25` | Shared WER/CER acceptance threshold |
 | `model` | `neuphonic/neutts-nano-q4-gguf` | NeuTTS backbone |
 | `codec` | `neuphonic/neucodec-onnx-decoder-int8` | NeuTTS codec |
-| `backboneDevice` | `cpu` | NeuTTS `cpu` or `gpu` |
+| `backboneDevice` | `cpu` | NeuTTS runtime `cpu` or `gpu` |
+| `llamaCppBackend` | `cpu` | NeuTTS build `cpu`, `vulkan`, `cuda` |
+| `llamaCppCudaArchitectures` | `null` | Optional CUDA architecture (e.g. `61`) |
 | `refCodes` | `/var/lib/tinytalk/ref_codes.pt` | NeuTTS reference codes |
 | `refText` | `/var/lib/tinytalk/ref_text.txt` | NeuTTS reference transcript |
 | `tinytaukModel` | `tencent/AuK-Flash` | TinyTAuK model repository |
