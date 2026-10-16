@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,15 @@ class OmniVoiceEngine:
         self._validate_reference_config()
         device = self.settings.omnivoice_device.strip() or "cpu"
         dtype = torch.float32 if device == "cpu" else torch.float16
+        if device == "cpu":
+            # Pin intra-op threads to the process affinity set; a restricted
+            # affinity (cpu-set/cgroup) makes cpu_count over-subscribe cores.
+            # Interop threads are left to PyTorch's default.
+            try:
+                n_threads = len(os.sched_getaffinity(0))
+            except AttributeError:
+                n_threads = os.cpu_count() or 1
+            torch.set_num_threads(n_threads)
         self.tts = OmniVoice.from_pretrained(
             self.settings.omnivoice_model,
             device_map=device,

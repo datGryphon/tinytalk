@@ -1,3 +1,4 @@
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -83,6 +84,21 @@ def test_loads_cpu_model_in_float32(monkeypatch):
     assert FakeOmniVoice.load_kwargs["model_name"] == "k2-fsa/OmniVoice"
     assert FakeOmniVoice.load_kwargs["device_map"] == "cpu"
     assert FakeOmniVoice.load_kwargs["dtype"] is omnivoice_backend.torch.float32
+
+
+def test_cpu_load_pins_intraop_threads_to_affinity_count(monkeypatch):
+    monkeypatch.setattr(omnivoice_backend, "OmniVoice", FakeOmniVoice)
+    affinity = ["0", "1", "2", "3"]
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _pid: affinity)
+    threads = []
+    monkeypatch.setattr(omnivoice_backend.torch, "set_num_threads", threads.append)
+
+    engine = omnivoice_backend.OmniVoiceEngine(
+        Settings(backend="omnivoice", omnivoice_device="cpu")
+    )
+    engine.load()
+
+    assert threads == [len(affinity)]
 
 
 def test_auto_voice_passes_speed_and_language(monkeypatch):
