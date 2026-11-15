@@ -11,6 +11,8 @@ Supported backends:
   [`datGryphon/tinytauk`](https://github.com/datGryphon/tinytauk);
 - **OmniVoice** — multilingual auto voice, constrained attribute-based voice
   design, and optional reference-audio voice cloning through `k2-fsa/OmniVoice`.
+- **Inflect Mini v3** — resident CPU synthesis with stock voices, saved local
+  reference-conditioning profiles, and native stock-voice vocal events.
 
 The flake exports `nixosModules.default`.
 
@@ -42,10 +44,11 @@ From a source checkout, sync only the backend you need:
 uv sync --frozen --extra neutts
 uv sync --frozen --extra tinytauk
 uv sync --frozen --extra omnivoice
+uv sync --frozen --extra inflect
 ```
 
-For development, add the `test` extra. To validate coexistence of all three
-backends, select all three extras in the same sync.
+For development, add the `test` extra. Extras can be selected together to check
+dependency coexistence; each running service still selects exactly one backend.
 
 The base `tinytalk` project remains backend-light. Backend imports are lazy, so
 selecting a backend whose extra is not installed fails with an actionable error.
@@ -64,8 +67,9 @@ POST /v1/audio/speech
 ```
 
 `/v1/audio/speech` accepts OpenAI-style JSON. `response_format` may be `wav`
-(default), `mp3`, or `opus` (returned as Ogg-Opus). `model` and `voice` are
-accepted but currently ignored. `stream: true` is rejected. Long inputs are
+(default), `mp3`, or `opus` (returned as Ogg-Opus). `model` is accepted but
+ignored. `voice` selects a stock or configured saved voice for Inflect; other
+backends ignore it. `stream: true` is rejected. Long inputs are
 chunked at sentence/phrase boundaries server-side.
 
 Backend-specific controls:
@@ -77,6 +81,8 @@ Backend-specific controls:
 - OmniVoice maps `instructions` directly to upstream voice-design `instruct` and
   maps `speed` directly to OmniVoice. With no instructions it uses the configured
   clone prompt when present; otherwise it uses OmniVoice auto-voice mode.
+- Inflect Mini uses `voice` and native inline vocal-event tags. Nonempty
+  `instructions` and speed values other than `1.0` are unsupported.
 
 OmniVoice voice design is not a freeform natural-language interface. The request
 `instructions` value must contain supported comma-separated attributes, for
@@ -98,7 +104,7 @@ semantic prompt.
 
 The accepted request `speed` range is `0.25` to `4.0`.
 
-All backends use the same speech-quality evaluator. When `werEndpoint` is set,
+NeuTTS, TinyTAuK and OmniVoice use the same speech-quality evaluator. When `werEndpoint` is set,
 TinyTalk transcribes candidate audio through an OpenAI-compatible transcription
 endpoint and scores WER/CER before accepting or rerolling a chunk. With no
 endpoint configured, the legacy local confidence heuristic is used instead.
@@ -212,7 +218,7 @@ Key options:
 
 | Option | Default | Notes |
 | --- | --- | --- |
-| `backend` | `neutts` | `neutts`, `tinytauk`, or `omnivoice` |
+| `backend` | `neutts` | `neutts`, `tinytauk`, `omnivoice`, or `inflect` |
 | `maxCharsPerChunk` | `180` | Max chars per synthesis call |
 | `interChunkSilenceMs` | `60` | Silence between chunks |
 | `maxRetries` | `2` | Quality-gated retries per chunk |
@@ -272,12 +278,63 @@ owns the package version; `tinytalk.__version__` reads the installed package
 metadata. A release updates `uv.lock`, writes the changelog, commits the version,
 tags `vX.Y.Z`, and creates the GitHub release. PyPI publishing is not configured.
 
+## Inflect Mini v3
+
+Inflect uses one resident CPU model, native 24 kHz audio, and the existing HTTP
+endpoint. It does not use NeuTTS audio transforms or quality rerolls. Install
+the `inflect` extra (or use `nix develop .#inflect`) and provision the official
+package separately. The supported Hugging Face revision is
+`owensong/Inflect-Mini-v3` at `0490aee6a9c66f9375b48287a2c5e5788afd00cc`;
+TinyTalk verifies the local package at startup, not on each request.
+
+```bash
+export TINYTALK_BACKEND=inflect
+export TINYTALK_INFLECT_PACKAGE=/path/to/inflect-mini-v3
+export TINYTALK_INFLECT_VOICE=cassidy
+uvicorn tinytalk.server:app
+```
+
+Stock request voices: `cassidy`, `mark`, `hope`, `james`, `sophia`, `jasper`.
+Omitting `voice` uses `TINYTALK_INFLECT_VOICE` (default `cassidy`).
+
+One optional pre-enrolled voice can be configured with
+`TINYTALK_INFLECT_PROFILE=/private/path/profile.json` and
+`TINYTALK_INFLECT_PROFILE_VOICE=bert`. Keep its companion `.pt` file beside the
+JSON. The alias must not collide with a stock voice. TinyTalk loads and verifies
+the profile once; serving does not require the reference recording, enrollment
+encoders, or an enrollment work directory. Invalid profiles and conditioning
+fallbacks are errors, not silent stock-voice replacements. Profiles are local
+trusted configuration; do not submit arbitrary profile files from users.
+
+Stock voices support native inline tags in `input`: `[laugh]`, `[sigh]`, `[gasp]`,
+`[cough]`, `[yawn]`, `[inhale]`, `[exhale]`, `[clear_throat]` (alias
+`[throat_clear]`). These insert non-speech performances, not general emotion or
+style instructions. Upstream does not support reference profiles with events;
+TinyTalk rejects that combination instead of changing voices silently.
+
+The corresponding NixOS options are `inflectPackage`, `inflectVoice`,
+`inflectProfile`, and `inflectProfileVoice`. Package/profile paths are runtime
+strings: private artifacts are not copied into the Nix store. Provision files
+readable by the service user separately. No enrollment or model downloads occur
+in the service. NeuTTS remains the default backend.
+
+Reference recordings, derived profiles, model weights and generated audio do
+not belong in this repository. Respect the separate rights of reference voices
+and the upstream component notices, including the bundled eSpeak/frontend
+dependencies. Playback needs no Inno or SpeechBrain enrollment stack.
+
+Keep the Inflect and NeuTTS extras in separate environments: Inflect's pinned
+`phonemizer-fork` and NeuTTS's `phonemizer` install overlapping Python files.
+Do not sync both into one environment. When repairing an environment that
+previously contained both, resync its selected extra with
+`--reinstall-package phonemizer` (NeuTTS) or
+`--reinstall-package phonemizer-fork` (Inflect).
+
 ## Development
 
 All shells use Python 3.13 and run `uv sync --frozen` against the checked-in
 lock. They retain separate virtual environments for backend-aware tests; CI also
-checks that all three backends can be synced and tested together from the same
-locked dependency graph.
+checks the existing NeuTTS, TinyTAuK and OmniVoice combined environment.
 
 NeuTTS/default environment:
 

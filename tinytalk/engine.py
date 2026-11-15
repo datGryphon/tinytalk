@@ -38,6 +38,7 @@ class SpeechEngine(Protocol):
         *,
         instructions: str | None = None,
         speed: float | None = None,
+        voice: str | None = None,
     ) -> SynthesisResult: ...
 
 
@@ -45,6 +46,7 @@ _BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
     "neutts": ("tinytalk.backends.neutts", "NeuTTSEngine"),
     "tinytauk": ("tinytalk.backends.tinytauk", "TinyTAuKEngine"),
     "omnivoice": ("tinytalk.backends.omnivoice", "OmniVoiceEngine"),
+    "inflect": ("tinytalk.backends.inflect", "InflectMiniEngine"),
 }
 
 

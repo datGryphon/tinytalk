@@ -10,7 +10,7 @@ let
     enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
 
     backend = lib.mkOption {
-      type = lib.types.enum [ "neutts" "tinytauk" "omnivoice" ];
+      type = lib.types.enum [ "neutts" "tinytauk" "omnivoice" "inflect" ];
       default = "neutts";
       description = "Synthesis backend for this service instance.";
     };
@@ -186,6 +186,32 @@ let
     };
   };
 
+  inflectOptions = {
+    inflectPackage = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/tinytalk/inflect-mini-v3";
+      description = "Local verified Inflect Mini v3 package directory, provisioned separately.";
+    };
+
+    inflectVoice = lib.mkOption {
+      type = lib.types.enum [ "cassidy" "mark" "hope" "james" "sophia" "jasper" ];
+      default = "cassidy";
+      description = "Default stock voice when a request omits voice.";
+    };
+
+    inflectProfile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Runtime path to a pre-enrolled profile JSON with its companion .pt file; kept outside the Nix store.";
+    };
+
+    inflectProfileVoice = lib.mkOption {
+      type = lib.types.str;
+      default = "bert";
+      description = "Request voice name for the configured saved profile; must not match a stock voice.";
+    };
+  };
+
   runtimeOptions = {
     memoryHigh = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
@@ -247,9 +273,18 @@ let
     TINYTALK_OMNIVOICE_REF_TEXT = toString cfg.omnivoiceRefText;
   };
 
+  inflectEnvironment = {
+    TINYTALK_INFLECT_PACKAGE = cfg.inflectPackage;
+    TINYTALK_INFLECT_VOICE = cfg.inflectVoice;
+    TINYTALK_INFLECT_PROFILE_VOICE = cfg.inflectProfileVoice;
+  } // lib.optionalAttrs (cfg.inflectProfile != null) {
+    TINYTALK_INFLECT_PROFILE = cfg.inflectProfile;
+  };
+
   backendEnvironment =
     if cfg.backend == "tinytauk" then tinytaukEnvironment
     else if cfg.backend == "omnivoice" then omnivoiceEnvironment
+    else if cfg.backend == "inflect" then inflectEnvironment
     else neuttsEnvironment;
 
   defaultMemoryHigh =
@@ -332,6 +367,7 @@ in
     // neuttsOptions
     // tinytaukOptions
     // omnivoiceOptions
+    // inflectOptions
     // runtimeOptions;
 
   config = lib.mkIf cfg.enable {

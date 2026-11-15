@@ -13,6 +13,8 @@ surface. Synthesis is provided by one backend per service instance:
   TinyTAuK runtime;
 - `omnivoice`: multilingual auto voice, constrained attribute-based voice design,
   and optional reference-audio cloning through k2-fsa/OmniVoice.
+- `inflect`: resident CPU Inflect Mini v3 with stock voices, local saved tuner
+  profiles, and native stock-voice vocal events.
 
 The main API is `POST /v1/audio/speech`. The repository exports a NixOS module
 as `nixosModules.default`.
@@ -188,6 +190,37 @@ uploads, and accelerator-specific optimization out of the generic TinyTalk API
 until separately justified.
 
 ## Env Var Map
+
+### Inflect Mini
+
+The `inflect` extra uses the shared Python 3.13/Torch 2.11/Transformers 5.17
+stack. `TINYTALK_INFLECT_PACKAGE` selects a separately provisioned, verified
+official package pinned to revision `0490aee6a9c66f9375b48287a2c5e5788afd00cc`.
+Keep the core modules on a single origin path; mixing staged tuner core copies
+with the original events core triggers upstream's origin guard.
+
+`TINYTALK_INFLECT_VOICE` defaults to `cassidy`. Optional
+`TINYTALK_INFLECT_PROFILE` selects a pre-enrolled JSON + companion `.pt`, exposed
+as `TINYTALK_INFLECT_PROFILE_VOICE` (default `bert`). Profiles load once, without
+enrollment encoders or reference reads. Never silently accept a conditioning
+fallback. Do not add private profiles or reference audio to Git.
+
+Only Inflect consumes request `voice`. Native tags live in request `input`, not
+`instructions`. Upstream stock events do not support conditioned profiles;
+reject that combination. Do not apply NeuTTS DSP/retries, add a second serving
+process, or import enrollment dependencies.
+
+Use `nix develop .#inflect -c pytest tests/test_inflect_backend.py tests/test_config.py tests/test_backend_api.py`
+for focused unit tests. Some older tests require NeuTTS or its request-signature
+fakes and cannot run in an Inflect-only environment. Real integration is opt-in
+and must use external package/profile/audio paths.
+
+Keep Inflect and NeuTTS extras in separate environments: `phonemizer-fork` and
+`phonemizer` own overlapping module files. The shared Python/Torch/Transformers
+versions are qualified, but installing these two distributions together is not.
+Neptune resident HTTP qualification measured approximately 0.32-0.34 RTF on
+short stock/profile/event requests with two intra-op threads and approximately
+902 MiB peak process RSS. These are single-run host observations, not guarantees.
 
 Shared:
 

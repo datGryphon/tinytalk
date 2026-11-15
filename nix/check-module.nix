@@ -26,6 +26,10 @@ let
     llamaCppCudaArchitectures = "61";
   };
   omnivoice = evaluate "omnivoice" { };
+  inflect = evaluate "inflect" {
+    inflectProfile = "/var/lib/tinytalk/voices/private.json";
+    inflectProfileVoice = "private";
+  };
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
   usesAppDirectory = service:
@@ -39,12 +43,19 @@ assert lib.assertMsg (
   usesAppDirectory neutts
   && usesAppDirectory omnivoice
   && usesAppDirectory tinytauk
+  && usesAppDirectory inflect
 ) "TinyTalk services must sync and execute the writable app directory";
 assert lib.assertMsg (
   neutts.environment.TINYTALK_BACKEND == "neutts"
   && omnivoice.environment.TINYTALK_BACKEND == "omnivoice"
   && tinytauk.environment.TINYTALK_BACKEND == "tinytauk"
+  && inflect.environment.TINYTALK_BACKEND == "inflect"
 ) "Each service must forward its selected backend";
+assert lib.assertMsg (
+  inflect.environment.TINYTALK_INFLECT_PROFILE == "/var/lib/tinytalk/voices/private.json"
+  && inflect.environment.TINYTALK_INFLECT_PROFILE_VOICE == "private"
+  && inflect.environment.TINYTALK_INFLECT_VOICE == "cassidy"
+) "Inflect must forward local profile paths without copying private artifacts";
 assert lib.assertMsg (
   tinytauk.environment.TINYTALK_TINYTAUK_PROFILE == "${profile}"
   && lib.hasInfix "ffmpeg" tinytauk.environment.LD_LIBRARY_PATH
