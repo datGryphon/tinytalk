@@ -28,6 +28,23 @@ tinytauk = [
 omnivoice = [
   "omnivoice==0.2.1",
 ]
+inflect = [
+  "torch==2.11.0",
+  "transformers==5.17.0",
+  "numpy==2.4.2",
+  "spacy==3.8.16",
+  "misaki==0.9.4",
+  "espeakng-loader==0.2.4",
+  "phonemizer-fork==3.3.2",
+  "loguru==0.7.3",
+  "attrs==26.1.0",
+  "num2words==0.5.14",
+  "regex==2026.9.29",
+  "addict==2.4.0",
+  "soundfile==0.13.1",
+  "PyYAML==6.0.3",
+  "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
 test = [
   "pytest",
   "httpx",

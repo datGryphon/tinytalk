@@ -54,3 +54,28 @@ def test_rejects_unknown_backend(monkeypatch):
 
     with pytest.raises(ValueError, match="TINYTALK_BACKEND"):
         load_settings()
+
+
+def test_loads_inflect_backend(monkeypatch):
+    monkeypatch.setenv("TINYTALK_BACKEND", "inflect")
+    monkeypatch.setenv("TINYTALK_INFLECT_PACKAGE", "/tmp/inflect-mini-v3")
+    monkeypatch.setenv("TINYTALK_INFLECT_VOICE", "james")
+    monkeypatch.setenv("TINYTALK_INFLECT_PROFILE", "/tmp/bert-profile.json")
+
+    settings = load_settings()
+
+    assert settings.backend == "inflect"
+    assert settings.inflect_package == Path("/tmp/inflect-mini-v3")
+    assert settings.inflect_voice == "james"
+    assert settings.inflect_profile == Path("/tmp/bert-profile.json")
+
+
+def test_inflect_profile_defaults_unset(monkeypatch):
+    settings = load_settings()
+
+    assert settings.inflect_package == Path("/var/lib/tinytalk/inflect-mini-v3")
+    assert settings.inflect_voice == "cassidy"
+    assert settings.inflect_profile is None
+
+    monkeypatch.setenv("TINYTALK_INFLECT_PROFILE", "")
+    assert load_settings().inflect_profile is None

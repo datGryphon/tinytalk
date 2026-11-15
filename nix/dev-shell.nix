@@ -37,6 +37,11 @@ in
   default = neutts;
   inherit neutts;
 
+  inflect = mkBackendShell {
+    backend = "inflect";
+    venv = ".venv-inflect";
+  };
+
   omnivoice = mkBackendShell {
     backend = "omnivoice";
     venv = ".venv-omnivoice";
