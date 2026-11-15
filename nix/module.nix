@@ -204,12 +204,6 @@ let
       default = null;
       description = "Runtime path to a pre-enrolled profile JSON with its companion .pt file; kept outside the Nix store.";
     };
-
-    inflectProfileVoice = lib.mkOption {
-      type = lib.types.str;
-      default = "bert";
-      description = "Request voice name for the configured saved profile; must not match a stock voice.";
-    };
   };
 
   runtimeOptions = {
@@ -276,7 +270,6 @@ let
   inflectEnvironment = {
     TINYTALK_INFLECT_PACKAGE = cfg.inflectPackage;
     TINYTALK_INFLECT_VOICE = cfg.inflectVoice;
-    TINYTALK_INFLECT_PROFILE_VOICE = cfg.inflectProfileVoice;
   } // lib.optionalAttrs (cfg.inflectProfile != null) {
     TINYTALK_INFLECT_PROFILE = cfg.inflectProfile;
   };

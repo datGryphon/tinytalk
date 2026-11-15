@@ -49,6 +49,9 @@ jobs:
           - backend: tinytauk
             label: TinyTAuK
             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
+          - backend: inflect
+            label: Inflect Mini
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_inflect_backend.py","tests/test_config.py","tests/test_backend_api.py","-q"]'
 
     env:
       TINYTALK_BACKEND: ${{ matrix.backend }}
@@ -90,6 +93,10 @@ jobs:
             label: TinyTAuK
             shell: tinytauk
             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
+          - backend: inflect
+            label: Inflect Mini
+            shell: inflect
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_inflect_backend.py","tests/test_config.py","tests/test_backend_api.py","-q"]'
 
     env:
       TINYTALK_BACKEND: ${{ matrix.backend }}

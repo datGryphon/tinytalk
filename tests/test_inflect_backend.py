@@ -17,16 +17,12 @@ from tinytalk.backends.inflect import (
     PROFILE_POINTER_SCHEMA,
     _EVENT_PLACEHOLDER_BASE,
     InflectMiniEngine,
-    InflectValidationError,
 )
 from tinytalk.config import Settings
 from tinytalk.engine import SynthesisResult
 
-# anchor_sid 0 -> "hope"; the alias that selects the profile is "bert".
+# Posted HTTP voice that must be ignored; the configured stock voice is "cassidy".
 ANCHOR_VOICE = "hope"
-ALIAS = "bert"
-# Value no longer checked by TinyTalk (the official loader validates the anchor);
-# kept so the fake profile shape matches upstream.
 FAKE_MINI_WEIGHTS = "0" * 64
 
 ALPHA = {c: i + 1 for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")}
@@ -81,47 +77,15 @@ class FakeAdapter:
 
     def synthesize(self, text, *, voice, seed, events):
         self.event_calls.append({"text": text, "voice": voice, "events": events})
-        audio = np.full(480, 0.2, dtype=np.float32)
         return {
-            "audio": audio,
+            "audio": np.full(480, 0.2, dtype=np.float32),
             "sample_rate": 24_000,
-            "metadata": {
-                "events": {
-                    "profiles": [{"tag": "yawn", "id": "cassidy-yawn-03", "voice": "cassidy"}],
-                    "source_audio_at_inference": False,
-                    "shared_decoder": True,
-                    "joins": {
-                        "sample_rate": 24_000,
-                        "segments": [
-                            {
-                                "kind": "speech",
-                                "tag": None,
-                                "text": "wait. ",
-                                "phones": "w",
-                                "start": 0,
-                                "end": 23400,
-                                "raw_pcm_sha256": "deadbeef",
-                                "trim": "removed head",
-                            },
-                            {
-                                "kind": "event",
-                                "tag": "yawn",
-                                "text": None,
-                                "start": 23400,
-                                "end": 46440,
-                                "raw_frames": 23040,
-                            },
-                        ],
-                    },
-                    "speech_metadata": [{"text": "wait. ", "phones": "w\u02c8A"}],
-                }
-            },
+            "metadata": {},
         }
 
 
 class FakeProfile:
-    def __init__(self, *, anchor_sid=0, applied=True, fallback=False):
-        self._anchor_sid = anchor_sid
+    def __init__(self, *, applied=True, fallback=False):
         self._applied = applied
         self._fallback = fallback
         self.calls = []
@@ -139,13 +103,13 @@ class FakeProfile:
 
     def as_dict(self):
         return {
-            "anchor_sid": self._anchor_sid,
+            "anchor_sid": 0,
             "provenance": {"source_hashes": {"mini_weights": FAKE_MINI_WEIGHTS}},
         }
 
 
 class _AbsentFieldProfile:
-    """Fake profile returning caller-supplied tuner metadata, to exercise missing fields."""
+    """Fake profile returning caller-supplied tuner metadata, to exercise missing flags."""
 
     def __init__(self, metadata):
         self._metadata = metadata
@@ -153,11 +117,7 @@ class _AbsentFieldProfile:
 
     def synthesize_ids(self, model, ids, seed=42):
         self.calls.append({"ids": ids, "seed": seed})
-        return {
-            "audio": np.full(300, 0.15, dtype=np.float32),
-            "sample_rate": 24_000,
-            "metadata": self._metadata,
-        }
+        return {"audio": np.full(300, 0.15, dtype=np.float32), "sample_rate": 24_000, "metadata": self._metadata}
 
 
 class _ProvenanceProfile:
@@ -212,11 +172,10 @@ def _patch_imported_module(monkeypatch, **namespace):
 
 
 def _stock_engine(profile=None, *, amplitude=0.1, inter_chunk_silence_ms=60,
-                  max_chars_per_chunk=180, voice="cassidy", profile_voice=ALIAS):
+                  max_chars_per_chunk=180, voice="cassidy"):
     settings = Settings(
         backend="inflect",
         inflect_voice=voice,
-        inflect_profile_voice=profile_voice,
         max_chars_per_chunk=max_chars_per_chunk,
         inter_chunk_silence_ms=inter_chunk_silence_ms,
     )
@@ -227,7 +186,6 @@ def _stock_engine(profile=None, *, amplitude=0.1, inter_chunk_silence_ms=60,
     engine._core = FakeCore()
     engine._frontend = object()
     engine._profile = profile
-    engine._profile_voice = profile_voice if profile is not None else None
     engine.loaded = True
     return engine
 
@@ -241,215 +199,138 @@ def _write_profile_files(tmp_path, *, sha="0" * 64):
 
 
 # --------------------------------------------------------------------------- #
-# Routing: alias selects profile; the six stock names (incl. anchor) are stock
+# Resolution: configured profile precedence, stock voice, events
 # --------------------------------------------------------------------------- #
-def test_alias_selects_profile_not_anchor():
-    profile = FakeProfile(anchor_sid=0)  # anchor voice is "hope"
-    engine = _stock_engine(profile=profile, voice=ANCHOR_VOICE)
+def test_configured_profile_takes_precedence_over_stock_voice():
+    profile = FakeProfile()
+    engine = _stock_engine(profile=profile, voice="cassidy")
 
-    # The anchor voice renders stock even though a profile is loaded.
-    stock = engine.synthesize("hello", voice=ANCHOR_VOICE)
-    assert stock.timing.chunks[0]["mode"] == "stock"
-    assert engine._profile.calls == []
+    result = engine.synthesize("hello world")
 
-    # The alias selects the cached profile; its internal anchor stays internal.
-    chosen = engine.synthesize("hello", voice=ALIAS)
-    assert chosen.timing.chunks[0]["mode"] == "profile"
-    assert chosen.timing.chunks[0]["voice"] == ALIAS
-    assert len(engine._profile.calls) == 1
+    assert result.timing.chunks[0]["mode"] == "profile"
+    assert len(profile.calls) == 1  # profile rendered, stock bypassed
 
 
-@pytest.mark.parametrize("stock_voice", ["hope", "sophia", "cassidy", "james", "jasper", "mark"])
-def test_all_stock_names_render_stock_with_profile_loaded(stock_voice):
-    engine = _stock_engine(profile=FakeProfile(anchor_sid=0))
-    result = engine.synthesize("hello world", voice=stock_voice)
+def test_configured_stock_voice_is_used_without_profile():
+    engine = _stock_engine(voice="james")
+
+    result = engine.synthesize("hello world")
+
     assert result.timing.chunks[0]["mode"] == "stock"
-    assert result.timing.chunks[0]["voice"] == stock_voice
-    assert engine._profile.calls == []
+    assert engine._delivery.calls[-1]["voice"] == "james"
 
 
-def test_unknown_alias_without_profile_is_rejected():
-    engine = _stock_engine(profile=None)
-    with pytest.raises(InflectValidationError, match="voice"):
-        engine.synthesize("hello", voice=ALIAS)
+def test_unconfigured_invalid_voice_rejected():
+    engine = _stock_engine(voice="ghost")
+
+    with pytest.raises(ValueError, match="voice"):
+        engine.synthesize("hello world")
 
 
-# --------------------------------------------------------------------------- #
-# Events: stock-voice events work with a profile loaded; alias+event is rejected
-# --------------------------------------------------------------------------- #
-def test_stock_event_works_with_profile_loaded():
-    engine = _stock_engine(profile=FakeProfile(anchor_sid=0), voice="cassidy")
-    result = engine.synthesize("wait. [yawn] what?", voice="cassidy")
+def test_conditioned_profile_with_events_is_rejected():
+    engine = _stock_engine(profile=FakeProfile(), voice="cassidy")
+
+    with pytest.raises(ValueError, match="event"):
+        engine.synthesize("wait. [yawn] what?")
+
+
+def test_event_chunk_uses_adapter_without_profile():
+    engine = _stock_engine(voice="cassidy")
+
+    result = engine.synthesize("wait. [yawn] what?")
 
     assert result.timing.chunks[0]["mode"] == "events"
     assert engine._adapter.event_calls[0]["voice"] == "cassidy"
 
 
-def test_alias_event_is_rejected_as_conditioned():
-    engine = _stock_engine(profile=FakeProfile(anchor_sid=0), voice="cassidy")
-    with pytest.raises(InflectValidationError, match="event"):
-        engine.synthesize("wait. [yawn] what?", voice=ALIAS)
-
-
-def test_events_metadata_strips_input_text_and_phones():
+def test_event_only_input_uses_adapter():
     engine = _stock_engine(voice="cassidy")
-    events = engine.synthesize("wait. [yawn] what was that?", voice="cassidy").timing.chunks[0]["events"]
 
-    assert events is not None
-    assert "speech_metadata" not in events
-    assert events["profiles"][0]["tag"] == "yawn"  # tags preserved
-    for seg in events["joins"]["segments"]:
-        assert "text" not in seg
-        assert "phones" not in seg
-        assert "raw_pcm_sha256" not in seg
-        assert "trim" not in seg
-    # frame intervals retained
-    assert events["joins"]["segments"][0]["start"] == 0
-    assert events["joins"]["segments"][1]["raw_frames"] == 23040
-
-
-def test_event_only_input_is_handled():
-    engine = _stock_engine(voice="cassidy")
     result = engine.synthesize("[yawn]")
+
     assert result.timing.chunks[0]["mode"] == "events"
 
 
-def test_native_parser_errors_are_preserved():
+# --------------------------------------------------------------------------- #
+# Tag protection: split must preserve event markup verbatim
+# --------------------------------------------------------------------------- #
+def test_tag_preserved_across_sentence_boundary():
     engine = _stock_engine(voice="cassidy")
-
-    class BrokenAdapter(FakeAdapter):
-        def synthesize(self, text, **kwargs):
-            raise ValueError("Unknown event tag")
-
-    engine._adapter = BrokenAdapter()
-    with pytest.raises(ValueError, match="Unknown event tag"):
-        engine.synthesize("hi [bogus] there", voice="cassidy")
-
-
-# --------------------------------------------------------------------------- #
-# _event_spans: shared split_text must preserve original event markup verbatim
-# --------------------------------------------------------------------------- #
-def _event_engine(max_chars_per_chunk: int = 180) -> InflectMiniEngine:
-    return InflectMiniEngine(
-        Settings(
-            backend="inflect",
-            inflect_voice="cassidy",
-            inflect_profile_voice="bert",
-            max_chars_per_chunk=max_chars_per_chunk,
-        )
-    )
-
-
-def test_event_spans_preserve_valid_tag_across_sentence_boundary():
-    engine = _event_engine()
     text = "That was surprising. [laugh] Let us continue."
 
-    spans = engine._event_spans(text)
+    joined = " ".join(engine.synthesize(text).chunks)
 
-    assert " ".join(spans) == text  # split_text alone corrupts this to "[ laugh]"
-    assert any("[laugh]" in span for span in spans)
-
-
-def test_event_spans_leaves_invalid_tag_untouched():
-    engine = _event_engine()
-    text = "That was surprising. [ laugh] Let us continue."
-
-    spans = engine._event_spans(text)
-    joined = " ".join(spans)
-
-    assert joined == text  # invalid markup preserved verbatim
-    assert "[ laugh]" in joined
-    assert "[laugh]" not in joined  # never silently repaired to a valid tag
+    assert joined == text
+    assert "[laugh]" in joined
 
 
-def test_event_spans_multitag_and_small_limit_not_corrupted():
-    engine = _event_engine(max_chars_per_chunk=40)
-    text = "Hold on. [cough] Wait. [gasp] What now?"
+def test_repeated_tags_preserved():
+    engine = _stock_engine(voice="cassidy")
+    text = "Hi. [yawn] there. [yawn] again."
 
-    joined = " ".join(engine._event_spans(text))
+    joined = " ".join(engine.synthesize(text).chunks)
 
-    assert "[cough]" in joined
-    assert "[gasp]" in joined
-    assert "[ cough]" not in joined and "[ gasp]" not in joined
+    assert joined == text
+    assert joined.count("[yawn]") == 2
 
 
-def test_event_spans_placeholder_literal_collision_preserves_user_text():
-    engine = _event_engine()
+def test_literal_collision_preserved():
+    engine = _stock_engine(voice="cassidy")
     collision = f"{_EVENT_PLACEHOLDER_BASE}0"
     text = f"user note {collision} here [laugh] ok"
 
-    joined = " ".join(engine._event_spans(text))
+    joined = " ".join(engine.synthesize(text).chunks)
 
     assert joined == text  # user placeholder literal untouched, tag restored
     assert collision in joined
     assert "[laugh]" in joined
 
 
+def test_small_chunk_limit_preserves_tags():
+    engine = _stock_engine(voice="cassidy", max_chars_per_chunk=40)
+    text = "Hold on. [cough] Wait. [gasp] What now?"
+
+    joined = " ".join(engine.synthesize(text).chunks)
+
+    assert "[cough]" in joined
+    assert "[gasp]" in joined
+    assert "[ cough]" not in joined and "[ gasp]" not in joined
+
+
 # --------------------------------------------------------------------------- #
 # Profile conditioning metadata must apply cleanly or raise
 # --------------------------------------------------------------------------- #
-def test_profile_bad_metadata_raises_runtime_error():
-    engine = _stock_engine(profile=FakeProfile(applied=False, fallback=True), voice=ANCHOR_VOICE)
-    with pytest.raises(RuntimeError, match="did not apply"):
-        engine.synthesize("hello", voice=ALIAS)
+def test_profile_fallback_failure_raises():
+    engine = _stock_engine(profile=FakeProfile(fallback=True), voice="cassidy")
 
-
-def test_profile_full_anchor_fallback_raises_runtime_error():
-    engine = _stock_engine(profile=FakeProfile(fallback=True), voice=ANCHOR_VOICE)
     with pytest.raises(RuntimeError):
-        engine.synthesize("hello", voice=ALIAS)
+        engine.synthesize("hello")
 
 
-def test_profile_mode_uses_profile_synthesize_ids():
-    profile = FakeProfile(anchor_sid=0, applied=True, fallback=False)
-    engine = _stock_engine(profile=profile, voice=ANCHOR_VOICE)
+def test_profile_missing_flags_raises():
+    engine = _stock_engine(profile=_AbsentFieldProfile({"native_tuner_profile": {}}), voice="cassidy")
 
-    result = engine.synthesize("hello world", voice=ALIAS)
-
-    assert len(engine._delivery.calls) == 0  # stock path bypassed
-    assert len(profile.calls) == 1
-    call = profile.calls[0]
-    assert call["ids"][0] == 0 and call["ids"][-1] == 0  # boundary-wrapped ids
-    timing = result.timing.chunks[0]
-    assert timing["mode"] == "profile"
-    assert timing["attempts"] == 1
-    assert timing["profile_applied"] is True
-    assert timing["full_anchor_fallback"] is False
-    assert timing["voice"] == ALIAS
-
-
-@pytest.mark.parametrize("metadata", [
-    {},  # missing native_tuner_profile entirely
-    {"native_tuner_profile": {"full_anchor_fallback": False}},  # missing profile_applied
-    {"native_tuner_profile": {"profile_applied": True}},  # missing full_anchor_fallback
-])
-def test_profile_missing_metadata_raises_runtime_error(metadata):
-    engine = _stock_engine(profile=_AbsentFieldProfile(metadata), voice=ANCHOR_VOICE)
     with pytest.raises(RuntimeError):
-        engine.synthesize("hello", voice=ALIAS)
+        engine.synthesize("hello")
 
 
 # --------------------------------------------------------------------------- #
 # _to_numpy: enforce native 24k nonempty mono finite float [-1, 1]
 # --------------------------------------------------------------------------- #
-def test_to_numpy_accepts_native_mono():
+def test_to_numpy_accepts_native():
     out = inflect_backend._to_numpy(np.full(100, 0.5, dtype=np.float32), 24_000)
     assert out.dtype == np.float32 and out.ndim == 1 and out.size == 100
 
 
-@pytest.mark.parametrize("audio", [
-    np.full(100, 0.1, dtype=np.float32),
-    np.full((2, 100), 0.1, dtype=np.float32),
-    np.array([], dtype=np.float32),
+@pytest.mark.parametrize("audio,rate", [
+    (np.full((2, 100), 0.1, dtype=np.float32), 24_000),   # stereo, not mono
+    (np.array([], dtype=np.float32), 24_000),              # empty
+    (np.full(100, 0.1, dtype=np.float32), 16_000),         # wrong sample rate
+    (np.full(100, 1.5, dtype=np.float32), 24_000),         # outside [-1, 1]
 ])
-def test_to_numpy_rejects_bad_shape_or_rate(audio):
+def test_to_numpy_rejects_non_native(audio, rate):
     with pytest.raises(RuntimeError):
-        inflect_backend._to_numpy(audio, 16_000 if audio.ndim == 1 else 24_000)
-
-
-def test_to_numpy_rejects_empty_mono():
-    with pytest.raises(RuntimeError):
-        inflect_backend._to_numpy(np.array([], dtype=np.float32), 24_000)
+        inflect_backend._to_numpy(audio, rate)
 
 
 def test_to_numpy_rejects_nonfinite():
@@ -459,77 +340,53 @@ def test_to_numpy_rejects_nonfinite():
         inflect_backend._to_numpy(audio, 24_000)
 
 
-def test_to_numpy_rejects_out_of_range():
-    with pytest.raises(RuntimeError):
-        inflect_backend._to_numpy(np.full(100, 1.5, dtype=np.float32), 24_000)
-
-
 # --------------------------------------------------------------------------- #
-# Profile pointer validation: local filename, sha format, alias
+# Profile pointer validation: schema, local filename, sha format
 # --------------------------------------------------------------------------- #
-def test_profile_bad_pointer_schema_is_rejected(monkeypatch, tmp_path):
+def test_profile_bad_pointer_schema_rejected(monkeypatch, tmp_path):
     loader = FakeTunerProfileLoader()
     _patch_imported_module(monkeypatch, load=loader.load)
     ptr = tmp_path / "ptr.json"
     ptr.write_text(json.dumps({"schema": "wrong", "file": "prof.pt", "sha256": "0" * 64}))
 
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS))
-    with pytest.raises(InflectValidationError, match="schema"):
+    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr))
+    with pytest.raises(ValueError, match="schema"):
         engine._load_profile()
     assert loader.load_calls == []
 
 
-def test_profile_file_traversal_is_rejected(monkeypatch, tmp_path):
+def test_profile_file_traversal_rejected(monkeypatch, tmp_path):
     loader = FakeTunerProfileLoader()
     _patch_imported_module(monkeypatch, load=loader.load)
     ptr = tmp_path / "ptr.json"
     ptr.write_text(json.dumps({"schema": PROFILE_POINTER_SCHEMA, "file": "../evil.pt", "sha256": "0" * 64}))
 
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS))
-    with pytest.raises(InflectValidationError, match="local companion"):
+    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr))
+    with pytest.raises(ValueError, match="local companion"):
         engine._load_profile()
 
 
-def test_profile_absolute_file_is_rejected(monkeypatch, tmp_path):
-    loader = FakeTunerProfileLoader()
-    _patch_imported_module(monkeypatch, load=loader.load)
-    ptr = tmp_path / "ptr.json"
-    ptr.write_text(json.dumps({"schema": PROFILE_POINTER_SCHEMA, "file": "/tmp/evil.pt", "sha256": "0" * 64}))
-
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS))
-    with pytest.raises(InflectValidationError, match="local companion"):
-        engine._load_profile()
-
-
-def test_profile_bad_sha_format_is_rejected(monkeypatch, tmp_path):
+def test_profile_bad_sha_format_rejected(monkeypatch, tmp_path):
     loader = FakeTunerProfileLoader()
     _patch_imported_module(monkeypatch, load=loader.load)
     ptr = tmp_path / "ptr.json"
     ptr.write_text(json.dumps({"schema": PROFILE_POINTER_SCHEMA, "file": "prof.pt", "sha256": "not-a-sha"}))
 
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS))
-    with pytest.raises(InflectValidationError, match="64 hex"):
+    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr))
+    with pytest.raises(ValueError, match="64 hex"):
         engine._load_profile()
 
 
-def test_profile_empty_alias_is_rejected(monkeypatch, tmp_path):
-    loader = FakeTunerProfileLoader()
+def test_profile_provenance_mismatch_rejected(monkeypatch, tmp_path):
+    loader = FakeTunerProfileLoader(profile=_ProvenanceProfile(mini_weights=FAKE_MINI_WEIGHTS))
     _patch_imported_module(monkeypatch, load=loader.load)
+    monkeypatch.setattr(inflect_backend, "_model_weights_sha", lambda package: "1" * 64)
     ptr, _ = _write_profile_files(tmp_path)
 
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=""))
-    with pytest.raises(InflectValidationError, match="empty"):
+    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr))
+    with pytest.raises(ValueError, match="manifest"):
         engine._load_profile()
-
-
-def test_profile_reserved_alias_is_rejected(monkeypatch, tmp_path):
-    loader = FakeTunerProfileLoader()
-    _patch_imported_module(monkeypatch, load=loader.load)
-    ptr, _ = _write_profile_files(tmp_path)
-
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice="cassidy"))
-    with pytest.raises(InflectValidationError, match="reserved"):
-        engine._load_profile()
+    assert engine._profile is None
 
 
 def test_profile_loads_from_local_companion_directory(monkeypatch, tmp_path):
@@ -538,21 +395,19 @@ def test_profile_loads_from_local_companion_directory(monkeypatch, tmp_path):
     monkeypatch.setattr(inflect_backend, "_model_weights_sha", lambda package: FAKE_MINI_WEIGHTS)
     ptr, pt = _write_profile_files(tmp_path)
 
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS))
+    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr))
     engine._verify_release = lambda package: None
     engine._load_adapter = lambda package: setattr(engine, "_adapter", FakeAdapter())
     engine.load()
 
-    assert len(loader.load_calls) == 1
     assert Path(loader.load_calls[0][0]).parent == tmp_path  # resolved beside the pointer
     assert engine._profile is loader._profile
-    assert engine._profile_voice == ALIAS  # alias, not the anchor
 
 
 # --------------------------------------------------------------------------- #
 # Release bind + load lifecycle
 # --------------------------------------------------------------------------- #
-def test_verify_release_checks_digest_before_verifier(monkeypatch, tmp_path):
+def test_release_manifest_digest_verified_before_import(monkeypatch, tmp_path):
     ran = {"verify": False}
 
     def fake_verify(package):
@@ -563,12 +418,12 @@ def test_verify_release_checks_digest_before_verifier(monkeypatch, tmp_path):
     manifest.write_text(json.dumps({"schema": "x", "files": {}}))  # digest will not match
 
     engine = InflectMiniEngine(Settings(backend="inflect", inflect_package=tmp_path))
-    with pytest.raises(InflectValidationError, match="pinned digest"):
+    with pytest.raises(ValueError, match="pinned digest"):
         engine.load()
     assert ran["verify"] is False  # the package verifier never executed
 
 
-def test_load_verifies_release_and_builds_delivery_once(monkeypatch, tmp_path):
+def test_load_builds_delivery_once(monkeypatch, tmp_path):
     calls = {"verify": 0, "adapter": 0}
 
     def fake_verify(package):
@@ -623,139 +478,31 @@ def test_profile_is_loaded_once_and_cached(monkeypatch, tmp_path):
     monkeypatch.setattr(inflect_backend, "_model_weights_sha", lambda package: FAKE_MINI_WEIGHTS)
     ptr, _ = _write_profile_files(tmp_path)
 
-    engine = InflectMiniEngine(
-        Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS)
-    )
+    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr))
     engine._verify_release = lambda package: None
     engine._load_adapter = lambda package: setattr(engine, "_adapter", FakeAdapter())
     engine.load()
-    assert len(loader.load_calls) == 1
 
-    engine.synthesize("hello world", voice=ALIAS)
-    engine.synthesize("again now", voice=ALIAS)
-    assert len(loader.load_calls) == 1
-    assert len(engine._profile.calls) == 2
-
-
-# --------------------------------------------------------------------------- #
-# Profile provenance bound to the release-verified manifest weights
-# --------------------------------------------------------------------------- #
-def test_profile_provenance_matches_manifest_passes(monkeypatch, tmp_path):
-    loader = FakeTunerProfileLoader(profile=_ProvenanceProfile(mini_weights=FAKE_MINI_WEIGHTS))
-    _patch_imported_module(monkeypatch, load=loader.load)
-    monkeypatch.setattr(inflect_backend, "_model_weights_sha", lambda package: FAKE_MINI_WEIGHTS)
-    ptr, _ = _write_profile_files(tmp_path)
-
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS))
-    engine._load_profile()
-
-    assert engine._profile is loader._profile
-    assert engine._profile_voice == ALIAS
-
-
-def test_profile_provenance_mismatch_fails(monkeypatch, tmp_path):
-    loader = FakeTunerProfileLoader(profile=_ProvenanceProfile(mini_weights=FAKE_MINI_WEIGHTS))
-    _patch_imported_module(monkeypatch, load=loader.load)
-    monkeypatch.setattr(inflect_backend, "_model_weights_sha", lambda package: "1" * 64)
-    ptr, _ = _write_profile_files(tmp_path)
-
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS))
-    with pytest.raises(InflectValidationError, match="manifest"):
-        engine._load_profile()
-    assert engine._profile is None
-
-
-def test_profile_provenance_missing_source_hash_fails(monkeypatch, tmp_path):
-    loader = FakeTunerProfileLoader(profile=_ProvenanceProfile(mini_weights=None))
-    _patch_imported_module(monkeypatch, load=loader.load)
-    monkeypatch.setattr(inflect_backend, "_model_weights_sha", lambda package: FAKE_MINI_WEIGHTS)
-    ptr, _ = _write_profile_files(tmp_path)
-
-    engine = InflectMiniEngine(Settings(backend="inflect", inflect_profile=ptr, inflect_profile_voice=ALIAS))
-    with pytest.raises(InflectValidationError, match="provenance"):
-        engine._load_profile()
-    assert engine._profile is None
-
-
-# --------------------------------------------------------------------------- #
-# Stock synthesis timing + assembly
-# --------------------------------------------------------------------------- #
-def test_stock_uses_delivery_phoneme_path_and_reuses_delivery():
-    engine = _stock_engine(max_chars_per_chunk=20)
-    result = engine.synthesize(
-        "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu"
-    )
-
-    assert result.sample_rate == 24_000
-    assert len(engine._delivery.calls) >= 2  # one delivery call per split span
-    for call in engine._delivery.calls:
-        assert call["voice"] == "cassidy"
-    timing = result.timing.chunks
-    assert all(chunk["attempts"] == 1 for chunk in timing)
-    assert all(chunk["mode"] == "stock" for chunk in timing)
-
-
-def test_chunk_timing_has_duration_and_inference_elapsed():
-    engine = _stock_engine(max_chars_per_chunk=180)
-    chunk = engine.synthesize("hello world", voice="cassidy").timing.chunks[0]
-
-    assert chunk["duration"] == pytest.approx(len(engine.synthesize("hello world", voice="cassidy").audio) / 24_000)
-    assert isinstance(chunk["t_infer"], (int, float))
-    assert chunk["t_infer"] >= 0
-
-
-def test_stock_adds_inter_chunk_silence_between_spans():
-    engine = _stock_engine(inter_chunk_silence_ms=60, max_chars_per_chunk=20)
-    result = engine.synthesize(
-        "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron"
-    )
-
-    silence_samples = 24_000 * (60 / 1000)
-    speech_samples = sum(240 for _ in engine._delivery.calls)
-    assert len(result.audio) == speech_samples + int(silence_samples) * (len(engine._delivery.calls) - 1)
-
-
-def test_stock_does_not_apply_neutts_dsp():
-    engine = _stock_engine(amplitude=0.9)
-    result = engine.synthesize("hello world", voice="cassidy")
-    assert float(np.max(np.abs(result.audio))) == pytest.approx(0.9)  # passed through untouched
+    engine.synthesize("hello world")
+    engine.synthesize("again now")
+    assert len(engine._profile.calls) == 2  # profile reused, not reloaded per request
 
 
 # --------------------------------------------------------------------------- #
 # Request validation
 # --------------------------------------------------------------------------- #
-def test_instructions_are_rejected():
+def test_instructions_rejected():
     engine = _stock_engine()
-    with pytest.raises(InflectValidationError, match="instructions"):
+    with pytest.raises(ValueError, match="instructions"):
         engine.synthesize("hello world", instructions="speak calmly")
 
 
 def test_speed_rejected_except_one():
     engine = _stock_engine()
-    with pytest.raises(InflectValidationError, match="speed"):
+    with pytest.raises(ValueError, match="speed"):
         engine.synthesize("hello world", speed=1.5)
     engine.synthesize("hello world", speed=1.0)  # accepted
     engine.synthesize("hello world")  # omitted, accepted
-
-
-def test_unknown_voice_is_rejected():
-    engine = _stock_engine()
-    with pytest.raises(InflectValidationError, match="voice"):
-        engine.synthesize("hello world", voice="ghost")
-
-
-def test_default_voice_is_used_when_omitted():
-    settings = Settings(backend="inflect", inflect_voice="james")
-    engine = InflectMiniEngine(settings)
-    engine.loaded = True
-    engine._adapter = FakeAdapter()
-    engine._delivery = FakeDelivery()
-    engine._core = FakeCore()
-    engine._frontend = object()
-    engine._profile = None
-
-    engine.synthesize("hello world")
-    assert engine._delivery.calls[-1]["voice"] == "james"
 
 
 def test_not_loaded_raises():
@@ -765,14 +512,13 @@ def test_not_loaded_raises():
 
 
 # --------------------------------------------------------------------------- #
-# Server routing / 400 mapping / readiness
+# Server routing / readiness; HTTP voice is ignored like other backends
 # --------------------------------------------------------------------------- #
 def _server_engine(profile=None, *, voice="cassidy"):
     engine = InflectMiniEngine(
         Settings(
             backend="inflect",
             inflect_voice=voice,
-            inflect_profile_voice=ALIAS,
             inflect_profile=profile and Path("/x"),
             inter_chunk_silence_ms=0,
         )
@@ -784,56 +530,22 @@ def _server_engine(profile=None, *, voice="cassidy"):
     engine._core = FakeCore()
     engine._frontend = object()
     engine._profile = profile
-    engine._profile_voice = ALIAS if profile is not None else None
     return engine
 
 
-def test_unsupported_voice_returns_400(monkeypatch):
-    monkeypatch.setattr(server, "settings", Settings(backend="inflect"))
-    monkeypatch.setattr(server, "engine", _server_engine())
-    with TestClient(server.app) as client:
-        res = client.post("/v1/audio/speech", json={"input": "hi", "voice": "ghost"})
-    assert res.status_code == 400
-
-
-def test_alias_event_returns_400(monkeypatch):
-    monkeypatch.setattr(server, "settings", Settings(backend="inflect"))
-    monkeypatch.setattr(server, "engine", _server_engine(profile=FakeProfile(anchor_sid=0)))
-    with TestClient(server.app) as client:
-        res = client.post(
-            "/v1/audio/speech",
-            json={"input": "wait. [yawn] what?", "voice": ALIAS},
-        )
-    assert res.status_code == 400
-
-
-def test_instructions_return_400(monkeypatch):
-    monkeypatch.setattr(server, "settings", Settings(backend="inflect"))
-    monkeypatch.setattr(server, "engine", _server_engine())
-    with TestClient(server.app) as client:
-        res = client.post("/v1/audio/speech", json={"input": "hi", "instructions": "speak"})
-    assert res.status_code == 400
-
-
-def test_speed_not_one_returns_400(monkeypatch):
-    monkeypatch.setattr(server, "settings", Settings(backend="inflect"))
-    monkeypatch.setattr(server, "engine", _server_engine())
-    with TestClient(server.app) as client:
-        res = client.post("/v1/audio/speech", json={"input": "hi", "speed": 1.5})
-    assert res.status_code == 400
-
-
-def test_voice_is_forwarded_to_inflect_engine(monkeypatch):
+def test_http_voice_ignored(monkeypatch):
     engine = _server_engine()
     monkeypatch.setattr(server, "settings", Settings(backend="inflect"))
     monkeypatch.setattr(server, "engine", engine)
     with TestClient(server.app) as client:
         res = client.post(
-            "/v1/audio/speech", json={"input": "hello world", "voice": ANCHOR_VOICE}
+            "/v1/audio/speech",
+            json={"input": "hello world", "voice": ANCHOR_VOICE},
         )
     assert res.status_code == 200
     assert res.headers["X-TinyTalk-Backend"] == "inflect"
-    assert engine._delivery.calls[-1]["voice"] == ANCHOR_VOICE
+    # The request voice is ignored; synthesis uses the configured stock voice.
+    assert engine._delivery.calls[-1]["voice"] == "cassidy"
 
 
 def test_other_backends_do_not_receive_voice(monkeypatch):

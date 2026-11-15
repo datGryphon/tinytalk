@@ -27,7 +27,6 @@ class Settings:
     inflect_package: Path = Path("/var/lib/tinytalk/inflect-mini-v3")
     inflect_voice: str = "cassidy"
     inflect_profile: Path | None = None
-    inflect_profile_voice: str = "bert"
     host: str = "0.0.0.0"
     port: int = 9002
     max_chars_per_chunk: int = 180
@@ -65,7 +64,6 @@ def load_settings() -> Settings:
         inflect_package=Path(os.getenv("TINYTALK_INFLECT_PACKAGE", str(Settings.inflect_package))),
         inflect_voice=os.getenv("TINYTALK_INFLECT_VOICE", Settings.inflect_voice),
         inflect_profile=_optional_path_env("TINYTALK_INFLECT_PROFILE"),
-        inflect_profile_voice=os.getenv("TINYTALK_INFLECT_PROFILE_VOICE", Settings.inflect_profile_voice),
         host=os.getenv("TINYTALK_HOST", Settings.host),
         port=_int_env("TINYTALK_PORT", Settings.port),
         max_chars_per_chunk=_int_env(

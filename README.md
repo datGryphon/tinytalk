@@ -67,9 +67,9 @@ POST /v1/audio/speech
 ```
 
 `/v1/audio/speech` accepts OpenAI-style JSON. `response_format` may be `wav`
-(default), `mp3`, or `opus` (returned as Ogg-Opus). `model` is accepted but
-ignored. `voice` selects a stock or configured saved voice for Inflect; other
-backends ignore it. `stream: true` is rejected. Long inputs are
+(default), `mp3`, or `opus` (returned as Ogg-Opus). `model` and `voice` are
+accepted but ignored. Voice selection is service configuration, not a request
+control. `stream: true` is rejected. Long inputs are
 chunked at sentence/phrase boundaries server-side.
 
 Backend-specific controls:
@@ -81,7 +81,8 @@ Backend-specific controls:
 - OmniVoice maps `instructions` directly to upstream voice-design `instruct` and
   maps `speed` directly to OmniVoice. With no instructions it uses the configured
   clone prompt when present; otherwise it uses OmniVoice auto-voice mode.
-- Inflect Mini uses `voice` and native inline vocal-event tags. Nonempty
+- Inflect Mini uses its configured stock voice or saved profile and native
+  inline vocal-event tags. Nonempty
   `instructions` and speed values other than `1.0` are unsupported.
 
 OmniVoice voice design is not a freeform natural-language interface. The request
@@ -294,14 +295,14 @@ export TINYTALK_INFLECT_VOICE=cassidy
 uvicorn tinytalk.server:app
 ```
 
-Stock request voices: `cassidy`, `mark`, `hope`, `james`, `sophia`, `jasper`.
-Omitting `voice` uses `TINYTALK_INFLECT_VOICE` (default `cassidy`).
+Stock configuration voices: `cassidy`, `mark`, `hope`, `james`, `sophia`, `jasper`.
+`TINYTALK_INFLECT_VOICE` defaults to `cassidy`.
 
 One optional pre-enrolled voice can be configured with
-`TINYTALK_INFLECT_PROFILE=/private/path/profile.json` and
-`TINYTALK_INFLECT_PROFILE_VOICE=bert`. Keep its companion `.pt` file beside the
-JSON. The alias must not collide with a stock voice. TinyTalk loads and verifies
-the profile once; serving does not require the reference recording, enrollment
+`TINYTALK_INFLECT_PROFILE=/private/path/profile.json`. A configured profile
+takes precedence over the stock voice for every request. Keep its companion
+`.pt` file beside the JSON. TinyTalk loads and verifies the profile once;
+serving does not require the reference recording, enrollment
 encoders, or an enrollment work directory. Invalid profiles and conditioning
 fallbacks are errors, not silent stock-voice replacements. Profiles are local
 trusted configuration; do not submit arbitrary profile files from users.
@@ -313,7 +314,7 @@ style instructions. Upstream does not support reference profiles with events;
 TinyTalk rejects that combination instead of changing voices silently.
 
 The corresponding NixOS options are `inflectPackage`, `inflectVoice`,
-`inflectProfile`, and `inflectProfileVoice`. Package/profile paths are runtime
+and `inflectProfile`. Package/profile paths are runtime
 strings: private artifacts are not copied into the Nix store. Provision files
 readable by the service user separately. No enrollment or model downloads occur
 in the service. NeuTTS remains the default backend.

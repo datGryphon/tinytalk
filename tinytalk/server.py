@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import __version__
 from .audio import encode_audio, to_wav_bytes
-from .backends.inflect import InflectValidationError
 from .config import load_settings
 from .engine import create_engine
 
@@ -70,15 +69,6 @@ async def validation_exception_handler(_request: Request, _exc: RequestValidatio
     return Response(status_code=400, content="bad request\n", media_type="text/plain")
 
 
-@app.exception_handler(InflectValidationError)
-async def inflect_validation_handler(_request: Request, _exc: InflectValidationError) -> Response:
-    # Inflect request validation (unsupported voice, instruction/speed controls,
-    # or an unsupported conditioned+event request) is a bad request. Keep this
-    # handler scoped to InflectValidationError so genuine inference failures
-    # still surface as server errors rather than being masked as bad input.
-    return Response(status_code=400, content="bad request\n", media_type="text/plain")
-
-
 @app.get("/health")
 async def health() -> Response:
     if not engine.loaded:
@@ -95,14 +85,6 @@ async def create_speech(payload: SpeechRequest) -> Response:
         async with infer_lock:
             if settings.backend == "neutts":
                 result = await run_in_threadpool(engine.synthesize, payload.input)
-            elif settings.backend == "inflect":
-                result = await run_in_threadpool(
-                    engine.synthesize,
-                    payload.input,
-                    instructions=payload.instructions,
-                    speed=payload.speed,
-                    voice=payload.voice,
-                )
             else:
                 result = await run_in_threadpool(
                     engine.synthesize,

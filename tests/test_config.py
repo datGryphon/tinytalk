@@ -61,7 +61,6 @@ def test_loads_inflect_backend(monkeypatch):
     monkeypatch.setenv("TINYTALK_INFLECT_PACKAGE", "/tmp/inflect-mini-v3")
     monkeypatch.setenv("TINYTALK_INFLECT_VOICE", "james")
     monkeypatch.setenv("TINYTALK_INFLECT_PROFILE", "/tmp/bert-profile.json")
-    monkeypatch.setenv("TINYTALK_INFLECT_PROFILE_VOICE", "bert")
 
     settings = load_settings()
 
@@ -69,7 +68,6 @@ def test_loads_inflect_backend(monkeypatch):
     assert settings.inflect_package == Path("/tmp/inflect-mini-v3")
     assert settings.inflect_voice == "james"
     assert settings.inflect_profile == Path("/tmp/bert-profile.json")
-    assert settings.inflect_profile_voice == "bert"
 
 
 def test_inflect_profile_defaults_unset(monkeypatch):
@@ -78,7 +76,6 @@ def test_inflect_profile_defaults_unset(monkeypatch):
     assert settings.inflect_package == Path("/var/lib/tinytalk/inflect-mini-v3")
     assert settings.inflect_voice == "cassidy"
     assert settings.inflect_profile is None
-    assert settings.inflect_profile_voice == "bert"
 
     monkeypatch.setenv("TINYTALK_INFLECT_PROFILE", "")
     assert load_settings().inflect_profile is None

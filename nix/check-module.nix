@@ -28,7 +28,6 @@ let
   omnivoice = evaluate "omnivoice" { };
   inflect = evaluate "inflect" {
     inflectProfile = "/var/lib/tinytalk/voices/private.json";
-    inflectProfileVoice = "private";
   };
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
@@ -53,7 +52,6 @@ assert lib.assertMsg (
 ) "Each service must forward its selected backend";
 assert lib.assertMsg (
   inflect.environment.TINYTALK_INFLECT_PROFILE == "/var/lib/tinytalk/voices/private.json"
-  && inflect.environment.TINYTALK_INFLECT_PROFILE_VOICE == "private"
   && inflect.environment.TINYTALK_INFLECT_VOICE == "cassidy"
 ) "Inflect must forward local profile paths without copying private artifacts";
 assert lib.assertMsg (

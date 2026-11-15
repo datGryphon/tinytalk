@@ -38,7 +38,6 @@ class SpeechEngine(Protocol):
         *,
         instructions: str | None = None,
         speed: float | None = None,
-        voice: str | None = None,
     ) -> SynthesisResult: ...
 
 
