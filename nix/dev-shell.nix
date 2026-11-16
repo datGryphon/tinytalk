@@ -37,6 +37,11 @@ in
   default = neutts;
   inherit neutts;
 
+  chatterbox_nano = mkBackendShell {
+    backend = "chatterbox_nano";
+    venv = ".venv-chatterbox-nano";
+  };
+
   silencio2 = mkBackendShell {
     backend = "silencio2";
     venv = ".venv-silencio2";

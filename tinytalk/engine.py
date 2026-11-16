@@ -74,6 +74,7 @@ _BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
     "neutts": ("tinytalk.backends.neutts", "NeuTTSEngine"),
     "tinytauk": ("tinytalk.backends.tinytauk", "TinyTAuKEngine"),
     "omnivoice": ("tinytalk.backends.omnivoice", "OmniVoiceEngine"),
+    "chatterbox_nano": ("tinytalk.backends.chatterbox_nano", "ChatterboxNanoEngine"),
     "silencio2": ("tinytalk.backends.silencio2", "Silencio2Engine"),
 }
 

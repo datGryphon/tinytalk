@@ -13,6 +13,16 @@ def test_loads_silencio2_backend(monkeypatch):
     assert settings.silencio2_voice == "/local/reference.wav"
 
 
+def test_loads_chatterbox_nano_backend(monkeypatch):
+    monkeypatch.setenv("TINYTALK_BACKEND", "chatterbox_nano")
+    monkeypatch.setenv("TINYTALK_CHATTERBOX_NANO_REF_AUDIO", "/local/reference.wav")
+    settings = load_settings()
+    assert settings.backend == "chatterbox_nano"
+    assert settings.chatterbox_nano_ref_audio == Path("/local/reference.wav")
+    monkeypatch.setenv("TINYTALK_CHATTERBOX_NANO_REF_AUDIO", "")
+    assert load_settings().chatterbox_nano_ref_audio is None
+
+
 def test_loads_tinytauk_backend(monkeypatch):
     monkeypatch.setenv("TINYTALK_BACKEND", "tinytauk")
     monkeypatch.setenv("TINYTALK_TINYTAUK_CHARS_PER_SECOND", "12.5")

@@ -12,6 +12,32 @@ def normalize_text(text: str) -> str:
     return _WHITESPACE_RE.sub(" ", text).strip()
 
 
+def split_tagged_text(text: str, max_chars: int) -> list[str]:
+    """Keep native sound/delivery tags atomic while using the shared splitter."""
+    pattern = r"\[[^\]]*\]|<[^>]*>"
+    marker = "\uE000"
+    if marker in text:
+        raise ValueError("input contains a reserved markup placeholder")
+    tags = re.findall(pattern, text)
+    if not tags:
+        return split_text(text, max_chars)
+    longest = max(map(len, tags))
+    if max_chars < longest:
+        raise ValueError("max_chars_per_chunk must fit every native tag")
+    protected = re.sub(pattern, marker, text)
+    budget = max_chars
+    while True:
+        iterator = iter(tags)
+        chunks = [
+            re.sub(marker, lambda _: next(iterator), chunk)
+            for chunk in split_text(protected, budget)
+        ]
+        overflow = max(map(len, chunks)) - max_chars
+        if overflow <= 0:
+            return chunks
+        budget = max(1, budget - overflow)
+
+
 def split_text(text: str, max_chars: int) -> list[str]:
     """Split text for NeuTTS without making callers know about context limits.
 

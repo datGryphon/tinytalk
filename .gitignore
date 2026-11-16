@@ -8,3 +8,5 @@ __pycache__/
 .venv-silencio2/
 *.egg-info/
 test_artifacts/
+
+.venv-chatterbox-nano/

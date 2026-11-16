@@ -28,6 +28,9 @@ tinytauk = [
 omnivoice = [
   "omnivoice==0.2.1",
 ]
+chatterbox_nano = [
+  "chatterbox-tts @ https://github.com/resemble-ai/chatterbox/archive/ab55923c27757c90cfcc407baa57dc25a7d25217.tar.gz",
+]
 silencio2 = [
   "torch",
   "huggingface-hub",
@@ -49,6 +52,8 @@ test = [
 
 [tool.uv]
 override-dependencies = [
+  "resemble-perth==1.0.1",
+  "safetensors>=0.8.0",
   "torch==2.11.0",
   "torchaudio==2.11.0",
   "transformers==5.17.0",

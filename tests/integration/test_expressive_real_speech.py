@@ -12,7 +12,7 @@ from tinytalk.config import Settings
 from tinytalk.engine import create_engine
 
 
-@pytest.mark.parametrize("backend", ["silencio2"])
+@pytest.mark.parametrize("backend", ["silencio2", "chatterbox_nano"])
 @pytest.mark.parametrize("conditioned", [False, True])
 def test_resident_expressive_http(backend, conditioned, monkeypatch):
     if os.getenv("TINYTALK_RUN_EXPRESSIVE_INTEGRATION") != backend:
@@ -24,7 +24,10 @@ def test_resident_expressive_http(backend, conditioned, monkeypatch):
 
     options = {"backend": backend, "max_chars_per_chunk": 80}
     if conditioned:
-        options["silencio2_voice"] = reference
+        if backend == "silencio2":
+            options["silencio2_voice"] = reference
+        else:
+            options["chatterbox_nano_ref_audio"] = Path(reference)
     settings = Settings(**options)
     engine = create_engine(settings)
     monkeypatch.setattr(server, "settings", settings)
@@ -35,11 +38,11 @@ def test_resident_expressive_http(backend, conditioned, monkeypatch):
     with TestClient(server.app) as client:
         assert client.get("/health").status_code == 200
         model = engine.tts
-        cached = dict(model._voices)
+        cached = dict(model._voices) if backend == "silencio2" else model.conds
         for name, text in [
             ("ordinary", "The system is operating normally."),
             ("events", "That was surprising. [laugh] Let us continue."),
-            ("long", "<whisper> " + "That was surprising. [laugh] Let us continue. " * 4),
+            ("long", ("<whisper> " if backend == "silencio2" else "") + "That was surprising. [laugh] Let us continue. " * 4),
         ]:
             response = client.post("/v1/audio/speech", json={"input": text, "voice": "ignored"})
             assert response.status_code == 200
@@ -51,5 +54,8 @@ def test_resident_expressive_http(backend, conditioned, monkeypatch):
                 assert int(response.headers["X-TinyTalk-Chunks"]) > 1
             (output / f"{mode}-{name}.wav").write_bytes(response.content)
             assert engine.tts is model
-            assert model._voices.keys() == cached.keys()
-            assert all(model._voices[key] is value for key, value in cached.items())
+            if backend == "silencio2":
+                assert model._voices.keys() == cached.keys()
+                assert all(model._voices[key] is value for key, value in cached.items())
+            else:
+                assert model.conds is cached

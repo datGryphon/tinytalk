@@ -27,6 +27,7 @@ let
   };
   omnivoice = evaluate "omnivoice" { };
   silencio2 = evaluate "silencio2" { silencio2Voice = "/var/lib/tinytalk/reference.wav"; };
+  chatterboxNano = evaluate "chatterbox_nano" { chatterboxNanoRefAudio = "/var/lib/tinytalk/reference.wav"; };
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
   usesAppDirectory = service:
@@ -41,6 +42,7 @@ assert lib.assertMsg (
   && usesAppDirectory omnivoice
   && usesAppDirectory tinytauk
   && usesAppDirectory silencio2
+  && usesAppDirectory chatterboxNano
 ) "TinyTalk services must sync and execute the writable app directory";
 assert lib.assertMsg (
   neutts.environment.TINYTALK_BACKEND == "neutts"
@@ -48,6 +50,8 @@ assert lib.assertMsg (
   && tinytauk.environment.TINYTALK_BACKEND == "tinytauk"
   && silencio2.environment.TINYTALK_BACKEND == "silencio2"
   && silencio2.environment.TINYTALK_SILENCIO2_VOICE == "/var/lib/tinytalk/reference.wav"
+  && chatterboxNano.environment.TINYTALK_BACKEND == "chatterbox_nano"
+  && chatterboxNano.environment.TINYTALK_CHATTERBOX_NANO_REF_AUDIO == "/var/lib/tinytalk/reference.wav"
 ) "Each service must forward its selected backend";
 assert lib.assertMsg (
   tinytauk.environment.TINYTALK_TINYTAUK_PROFILE == "${profile}"

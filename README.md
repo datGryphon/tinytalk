@@ -13,6 +13,8 @@ Supported backends:
   design, and optional reference-audio voice cloning through `k2-fsa/OmniVoice`.
 - **Silencio-2** — CPU speech with cached bundled/reference conditioning and
   native inline vocal events and emotions.
+- **Chatterbox Nano** — CPU speech with resident bundled/reference conditioning,
+  native vocal events and upstream PerTh watermarking.
 
 The flake exports `nixosModules.default`.
 
@@ -214,7 +216,7 @@ Key options:
 
 | Option | Default | Notes |
 | --- | --- | --- |
-| `backend` | `neutts` | `neutts`, `tinytauk`, `omnivoice`, or `silencio2` |
+| `backend` | `neutts` | `neutts`, `tinytauk`, `omnivoice`, `silencio2`, or `chatterbox_nano` |
 | `maxCharsPerChunk` | `180` | Max chars per synthesis call |
 | `interChunkSilenceMs` | `60` | Silence between chunks |
 | `maxRetries` | `2` | Quality-gated retries per chunk |
@@ -345,7 +347,39 @@ delivery tags (`<happy>`, `<sad>`, `<angry>`, `<fear>`, `<surprised>`, `<whisper
 belong in `input`, including with a configured reference. Nonempty `instructions`
 and speed other than `1.0` are unsupported. Output retains upstream's native
 24 kHz audio without loudness normalization or TinyTalk quality retries.
+The shared tagged-input splitter keeps tags atomic; active Silencio emotions
+carry across TinyTalk chunks. A repeated emotion prefix can add a few characters
+to the configured text budget.
 
 Silencio-2 weights are CC-BY-4.0, based on Kyutai Pocket TTS; its core code is
 MIT. Retain upstream attribution and notices when redistributing model assets:
 <https://huggingface.co/BlueRoseLabs/Silencio-2/blob/main/NOTICE.md>.
+
+## Chatterbox Nano CPU Backend
+
+Select `TINYTALK_BACKEND=chatterbox_nano` and install with
+`uv sync --frozen --extra chatterbox_nano --extra test`, or use
+`nix develop .#chatterbox_nano`. The optional
+`TINYTALK_CHATTERBOX_NANO_REF_AUDIO` (`services.tinytalk.chatterboxNanoRefAudio`)
+selects a local reference clip longer than five seconds. With no reference,
+upstream's bundled conditioning is used. HTTP `voice` is ignored.
+
+TinyTalk pins upstream Chatterbox source to
+`ab55923c27757c90cfcc407baa57dc25a7d25217`; the released 0.1.7 wheel lacks
+`nano=True`. The adapter calls `ChatterboxTurboTTS.from_pretrained(device="cpu",
+nano=True)` and encodes a configured reference once during load. Calls then reuse
+that conditioning without reference-file reads. Reference normalization is
+disabled through upstream's public `norm_loudness=False` option, avoiding the
+observed normalization dtype mismatch and preserving the supplied clip's level.
+
+This backend is verified on TinyTalk's Python 3.13, Torch/Torchaudio 2.11 and
+Transformers 5.17 stack. Dependency overrides retain existing Perth 1.0.1 and
+allow Safetensors >=0.8 as required by Transformers, rather than installing a
+second ML stack. Upstream generation, vocal-event tags and watermarking remain
+unchanged; there are no TinyTalk DSP transforms or quality retries. Put tags such
+as `[laugh]` in `input`; nonempty `instructions` and non-unit speed are unsupported.
+
+Chatterbox code/model licensing is MIT; consult upstream asset notices. The pinned
+upstream README declares the research repository unmaintained. Its full Nano
+snapshot is approximately 3 GB and qualification used approximately 4.2 GB peak
+process memory; these are development-host observations, not capacity guarantees.

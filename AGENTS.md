@@ -15,6 +15,8 @@ surface. Synthesis is provided by one backend per service instance:
   and optional reference-audio cloning through k2-fsa/OmniVoice.
 - `silencio2`: resident CPU Silencio-2 with bundled or configured reference
   conditioning and native inline sounds/emotions.
+- `chatterbox_nano`: resident CPU Chatterbox Nano with cached bundled/reference
+  conditioning, native events and upstream watermarking.
 
 The main API is `POST /v1/audio/speech`. The repository exports a NixOS module
 as `nixosModules.default`.
@@ -73,6 +75,9 @@ feature flags unrelated to real backend differences.
   which has no Python distribution metadata. Its extra supplies dependencies.
   Cache the configured voice during load, preserve inline tags across shared
   chunks, and use `normalize=False` to retain native expressive levels.
+- Chatterbox Nano uses pinned upstream source and the shared ML dependency
+  overrides. Prepare a configured reference once with `norm_loudness=False`;
+  request generation must not re-read or re-encode it. Keep watermarking native.
 - Shared correctness evaluation stays in `quality.py`. Backend-specific retry
   policy stays with each backend because their controls and failure modes differ.
 - Audio stays float `[-1, 1]` through the pipeline until final WAV/codec encoding.
@@ -253,3 +258,24 @@ locked extra.
 
 Keep TinyTAuK pinned to a released tag rather than `main` in production
 dependency metadata.
+
+## Expressive CPU Backends
+
+Silencio-2 is pinned to HF revision `20930f5f6a6bb564f2a8207152fd5c5d8eecff03`.
+`TINYTALK_SILENCIO2_VOICE` / `services.tinytalk.silencio2Voice` selects bundled
+ID `260` by default or a local reference path. Its package has no install
+metadata: dependencies live in the extra, original code loads from the snapshot.
+
+Chatterbox Nano source is pinned to `ab55923c27757c90cfcc407baa57dc25a7d25217`.
+`TINYTALK_CHATTERBOX_NANO_REF_AUDIO` / `services.tinytalk.chatterboxNanoRefAudio`
+optionally selects a reference longer than five seconds. Otherwise use bundled
+upstream conditioning. Both new backends use the shared Python 3.13 / Torch 2.11 /
+Transformers 5.17 stack. Nano additionally needs the existing Perth 1.0.1 and
+Safetensors >=0.8 overrides rather than upstream's incompatible metadata pins.
+
+Use `nix develop .#silencio2` or `nix develop .#chatterbox_nano`. Each backend has
+independent native/Nix CI jobs. Real HTTP qualification is opt-in:
+`TINYTALK_RUN_EXPRESSIVE_INTEGRATION=<backend>` and external
+`TINYTALK_TEST_REF_AUDIO`, running `tests/integration/test_expressive_real_speech.py`.
+Keep test artifacts outside Git. These backends do not run quality retries;
+runtime WER settings apply only to the older quality-gated backends.

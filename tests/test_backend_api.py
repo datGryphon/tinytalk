@@ -60,7 +60,7 @@ def test_controlled_backend_receives_instructions_and_speed(monkeypatch, backend
     assert response.headers["X-TinyTalk-Model"] == "fake/controlled"
 
 
-@pytest.mark.parametrize("backend", ["neutts", "tinytauk", "omnivoice", "silencio2"])
+@pytest.mark.parametrize("backend", ["neutts", "tinytauk", "omnivoice", "silencio2", "chatterbox_nano"])
 def test_missing_backend_extra_has_actionable_error(monkeypatch, backend):
     def missing_import(_module_name):
         raise ModuleNotFoundError(f"No module named {backend!r}", name=backend)
