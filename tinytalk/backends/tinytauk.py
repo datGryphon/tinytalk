@@ -8,10 +8,11 @@ import numpy as np
 from tinytauk import TinyTAuK
 
 from .. import engine as engine_module
-from ..audio import edge_fade, peak_limit, trim_edge_silence
+from ..audio import AudioSamples, edge_fade, peak_limit, trim_edge_silence
 from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
+from ..timing import AttemptStatus, AttemptTiming, ChunkTiming
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
 _PROMPT_SCAFFOLD = "Based on the following description, generate speech content."
@@ -96,14 +97,14 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
         )
         conditioning_seconds = time.perf_counter() - conditioning_start
 
-        best_audio: np.ndarray | None = None
+        best_audio: AudioSamples | None = None
         best_quality: QualityResult | None = None
         best_rank: tuple[bool, bool, float, float] | None = None
         best_attempt = -1
         best_seed: int | None = None
         best_duration = duration
         wer_fallbacks = 0
-        attempt_details: list[dict[str, object]] = []
+        attempt_details: list[AttemptTiming] = []
 
         for attempt in range(num_attempts):
             seed = self._attempt_seed(base_seed, index, attempt, num_attempts)
@@ -177,7 +178,7 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
             except ValueError:
                 pass
 
-            detail: dict[str, object] = {
+            detail: AttemptTiming = {
                 "attempt": attempt,
                 "t_infer": t_infer,
                 "t_dsp": t_dsp,
@@ -200,7 +201,7 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
                 f"All {num_attempts} attempts produced no usable audio for chunk: {chunk_text!r}"
             )
 
-        selected_status = (
+        selected_status: AttemptStatus = (
             "accepted"
             if quality_is_acceptable(best_quality, self.settings.wer_threshold)
             else "fallback"
@@ -209,7 +210,7 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
             if detail["attempt"] == best_attempt:
                 detail["status"] = selected_status
 
-        chunk_timing: dict[str, object] = {
+        chunk_timing: ChunkTiming = {
             "index": index,
             "attempts": len(attempt_details),
             "status": selected_status,

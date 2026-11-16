@@ -11,6 +11,7 @@ from tinytalk.backends.tinytauk import TinyTAuKBackend
 from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 from tinytalk.quality import QualityResult
+from tinytalk.timing import QualitySource
 
 
 @dataclass(frozen=True)
@@ -110,7 +111,7 @@ def _quality(
     deletions: int = 0,
     substitutions: int = 0,
     prompt_leak: bool = False,
-    source: str = "whisper",
+    source: QualitySource = "whisper",
     fallback: bool = False,
 ) -> QualityResult:
     return QualityResult(

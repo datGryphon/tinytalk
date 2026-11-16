@@ -4,10 +4,12 @@ import json
 import os
 from dataclasses import replace
 from pathlib import Path
+from typing import TypedDict
 
 from tinytalk.audio import to_wav_bytes
 from tinytalk.backends.tinytauk import TinyTAuKBackend
-from tinytalk.engine import SpeechEngine
+from tinytalk.engine import SpeechEngine, SynthesisRequest
+from tinytalk.timing import AttemptStatus, AttemptTiming, ChunkTiming, QualityTiming
 from tinytalk.config import Settings
 
 TARGET = (
@@ -19,33 +21,48 @@ RICH_STYLE = (
 )
 
 
-def _assert_live_quality(chunk: dict, *, threshold: float) -> None:
+class ValidationRecord(QualityTiming):
+    case: str
+    instructions: str | None
+    chunks: int
+    attempts: int
+    status: AttemptStatus
+    selected_seed: int | None
+    selected_gen_seconds: float
+    attempts_detail: list[AttemptTiming]
+    wav: str
+
+
+def _assert_live_quality(chunk: ChunkTiming, *, threshold: float) -> None:
     assert chunk["wer_source"] == "whisper", chunk
     assert chunk["wer_fallback"] is False, chunk
     assert chunk["cer"] is not None, chunk
     assert chunk["prompt_leak"] is False, chunk
+    assert chunk["wer"] is not None, chunk
     assert chunk["wer"] <= threshold, chunk
     assert chunk["cer"] <= threshold, chunk
     assert chunk["status"] == "accepted", chunk
 
 
 def _run_case(
-    engine: SpeechEngine[TinyTAuKBackend],
+    engine: SpeechEngine[SynthesisRequest],
     *,
     name: str,
     instructions: str | None,
     threshold: float,
     force_all_retries: bool = False,
-) -> dict:
+) -> ValidationRecord:
     settings = replace(
         engine.settings,
         wer_threshold=-1.0 if force_all_retries else threshold,
         max_retries=2,
     )
-    case_engine = SpeechEngine(TinyTAuKBackend(settings))
-    case_engine.backend.tts = engine.backend.tts
-    case_engine.backend.sample_rate = engine.sample_rate
-    case_engine.backend.loaded = True
+    assert isinstance(engine.backend, TinyTAuKBackend)
+    backend = TinyTAuKBackend(settings)
+    backend.tts = engine.backend.tts
+    backend.sample_rate = engine.sample_rate
+    backend.loaded = True
+    case_engine = SpeechEngine(backend)
 
     result = case_engine.synthesize(TARGET, instructions=instructions, speed=1.0)
     assert result.timing is not None
@@ -73,7 +90,7 @@ def _run_case(
     wav_path = out_dir / f"{name}.wav"
     wav_path.write_bytes(to_wav_bytes(result.audio, result.sample_rate))
 
-    record = {
+    record: ValidationRecord = {
         "case": name,
         "instructions": instructions,
         "chunks": len(result.chunks),

@@ -13,11 +13,17 @@ import numpy as np
 import pytest
 
 from tinytalk.config import Settings
-from tinytalk.backends.neutts import NeuTTSBackend
+from tinytalk.backends.neutts import NeuTTSBackend, NeuTTSRequest
 from tinytalk.engine import SpeechEngine
+from tinytalk.quality import QualityResult
+from tinytalk.timing import QualitySource
 
 
-def _make_engine(settings: Settings) -> SpeechEngine[NeuTTSBackend]:
+def _quality(wer: float, source: QualitySource = "confidence") -> QualityResult:
+    return QualityResult(wer, None, None, None, None, False, source, False)
+
+
+def _make_engine(settings: Settings) -> SpeechEngine[NeuTTSRequest]:
     """Build an engine without loading the model. Caller must set tts/ref_codes/ref_text/sample_rate."""
     engine = SpeechEngine(NeuTTSBackend(settings))
     engine.backend.ref_codes = [1, 2, 3]
@@ -139,8 +145,8 @@ class TestBestOfNByWer:
         def fake_wer(wav, text):
             rms = float(np.sqrt(np.mean(wav.astype(np.float64) ** 2)))
             if rms < 0.01:
-                return 0.8, "confidence", False  # bad (silent)
-            return 0.1, "confidence", False  # good
+                return _quality(0.8)  # bad (silent)
+            return _quality(0.1)  # good
 
         with patch.object(engine.backend, "_chunk_wer", side_effect=fake_wer):
             result = engine.synthesize("hello world test")
@@ -176,8 +182,8 @@ class TestEarlyExit:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return 0.1, "confidence", False  # below threshold -> break immediately
-            return 1.0, "confidence", False
+                return _quality(0.1)  # below threshold -> break immediately
+            return _quality(1.0)
 
         with patch.object(engine.backend, "_chunk_wer", side_effect=fake_wer):
             engine.synthesize("hello world test")
@@ -191,7 +197,7 @@ class TestEarlyExit:
 
 class TestEarlyAcceptTiming:
 
-    def _timing_engine(self, max_retries: int = 2) -> SpeechEngine[NeuTTSBackend]:
+    def _timing_engine(self, max_retries: int = 2) -> SpeechEngine[NeuTTSRequest]:
         settings = Settings(
             max_retries=max_retries,
             repeat_penalty=1.0,
@@ -212,7 +218,7 @@ class TestEarlyAcceptTiming:
         non-zero measured timings."""
         engine = self._timing_engine()
 
-        with patch.object(engine.backend, "_chunk_wer", side_effect=lambda w, t: (0.1, "confidence", False)):
+        with patch.object(engine.backend, "_chunk_wer", return_value=_quality(0.1)):
             result = engine.synthesize("hello world test")
 
         assert result.timing is not None
@@ -242,7 +248,7 @@ class TestEarlyAcceptTiming:
         def fake_wer(wav, text):
             calls["n"] += 1
             # first attempt above threshold -> reroll; second below -> accept
-            return (0.5 if calls["n"] == 1 else 0.1, "whisper", False)
+            return _quality(0.5 if calls["n"] == 1 else 0.1, "whisper")
 
         with patch.object(engine.backend, "_chunk_wer", side_effect=fake_wer):
             result = engine.synthesize("hello world test")
@@ -264,7 +270,7 @@ class TestEarlyAcceptTiming:
         the server (server sums chunk.attempts)."""
         engine = self._timing_engine()
 
-        with patch.object(engine.backend, "_chunk_wer", side_effect=lambda w, t: (0.1, "confidence", False)):
+        with patch.object(engine.backend, "_chunk_wer", return_value=_quality(0.1)):
             result = engine.synthesize("hello world test")
 
         assert result.timing is not None
@@ -307,8 +313,8 @@ class TestExhaustRetries:
         def fake_wer(wav, text):
             rms = float(np.sqrt(np.mean(wav.astype(np.float64) ** 2)))
             if rms < 0.01:
-                return 1.0, "confidence", False
-            return 0.05, "confidence", False  # above threshold (0.0) -> no early exit, but keeps best
+                return _quality(1.0)
+            return _quality(0.05)  # above threshold (0.0) -> no early exit, but keeps best
 
         with patch.object(engine.backend, "_chunk_wer", side_effect=fake_wer):
             result = engine.synthesize("hello world test")
@@ -347,7 +353,7 @@ class TestFailOpen:
         # With wer_endpoint="", _chunk_wer returns 1.0 - chunk_confidence
         # good_audio -> confidence > 0, so WER < 1.0
         with patch.object(engine.backend, "_chunk_wer") as mock_wer:
-            mock_wer.return_value = (0.3, "confidence", False)
+            mock_wer.return_value = _quality(0.3)
             result = engine.synthesize("hello world test")
             mock_wer.assert_called_once()
         assert len(result.audio) > 0

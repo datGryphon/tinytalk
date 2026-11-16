@@ -2,30 +2,33 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .audio import silence
+from .audio import AudioSamples, silence
 from .chunking import split_text
-from .config import Backend, Settings
+from .config import Settings
 from .quality import QualityResult, transcribe_chunk
+from .timing import ChunkTiming, QualityTiming
 
-type ChunkResult = tuple[np.ndarray, dict[str, object], int]
+if TYPE_CHECKING:
+    from .backends.neutts import NeuTTSRequest
+
+type ChunkResult = tuple[AudioSamples, ChunkTiming, int]
 
 
 @dataclass(frozen=True)
 class RequestTiming:
     """Backend timing payload for one synthesis request."""
 
-    chunks: list[dict[str, object]]
+    chunks: list[ChunkTiming]
     wer_fallbacks: int = 0
 
 
 @dataclass(frozen=True)
 class SynthesisResult:
-    audio: np.ndarray
+    audio: AudioSamples
     sample_rate: int
     chunks: list[str]
     timing: RequestTiming | None = None
@@ -76,7 +79,7 @@ class SpeechBackend[RequestT: SynthesisRequest](ABC):
         pass
 
     @staticmethod
-    def _quality_timing_fields(quality: QualityResult | None) -> dict[str, object]:
+    def _quality_timing_fields(quality: QualityResult | None) -> QualityTiming:
         if quality is None:
             return {
                 "wer": None,
@@ -91,10 +94,10 @@ class SpeechBackend[RequestT: SynthesisRequest](ABC):
         return quality.timing_fields()
 
 
-class SpeechEngine[BackendT: SpeechBackend[Any]]:
-    backend: BackendT
+class SpeechEngine[RequestT: SynthesisRequest]:
+    backend: SpeechBackend[RequestT]
 
-    def __init__(self, backend: BackendT) -> None:
+    def __init__(self, backend: SpeechBackend[RequestT]) -> None:
         self.backend = backend
 
     @property
@@ -130,8 +133,8 @@ class SpeechEngine[BackendT: SpeechBackend[Any]]:
             chunks = self.backend.prepare_chunks(text)
             if not chunks:
                 raise ValueError("cannot synthesize empty text")
-            parts: list[np.ndarray] = []
-            chunk_timings: list[dict[str, object]] = []
+            parts: list[AudioSamples] = []
+            chunk_timings: list[ChunkTiming] = []
             wer_fallbacks = 0
             silence_ms = self.settings.inter_chunk_silence_ms
 
@@ -155,23 +158,35 @@ class SpeechEngine[BackendT: SpeechBackend[Any]]:
             self.backend.finalize_request(request)
 
 
-_BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
-    "neutts": ("tinytalk.backends.neutts", "NeuTTSBackend"),
-    "tinytauk": ("tinytalk.backends.tinytauk", "TinyTAuKBackend"),
-    "omnivoice": ("tinytalk.backends.omnivoice", "OmniVoiceBackend"),
-    "chatterbox_nano": ("tinytalk.backends.chatterbox_nano", "ChatterboxNanoBackend"),
-    "silencio2": ("tinytalk.backends.silencio2", "Silencio2Backend"),
-}
-
-
-def _backend_class(backend: Backend) -> type[SpeechBackend[Any]]:
+def create_engine(
+    settings: Settings,
+) -> SpeechEngine[SynthesisRequest] | SpeechEngine[NeuTTSRequest]:
+    # Lazy imports allow a minimal service installation with only its backend extra.
+    backend = settings.backend
     try:
-        module_name, class_name = _BACKEND_CLASSES[backend]
-    except KeyError:
-        raise ValueError(f"unsupported synthesis backend: {backend!r}") from None
+        match backend:
+            case "neutts":
+                from .backends.neutts import NeuTTSBackend
 
-    try:
-        module = import_module(module_name)
+                return SpeechEngine(NeuTTSBackend(settings))
+            case "tinytauk":
+                from .backends.tinytauk import TinyTAuKBackend
+
+                return SpeechEngine(TinyTAuKBackend(settings))
+            case "omnivoice":
+                from .backends.omnivoice import OmniVoiceBackend
+
+                return SpeechEngine(OmniVoiceBackend(settings))
+            case "chatterbox_nano":
+                from .backends.chatterbox_nano import ChatterboxNanoBackend
+
+                return SpeechEngine(ChatterboxNanoBackend(settings))
+            case "silencio2":
+                from .backends.silencio2 import Silencio2Backend
+
+                return SpeechEngine(Silencio2Backend(settings))
+            case _:
+                raise ValueError(f"unsupported synthesis backend: {backend!r}")
     except ModuleNotFoundError as exc:
         # A missing TinyTalk module indicates a packaging/programming error, not
         # an omitted optional backend extra. Do not disguise that case.
@@ -182,13 +197,6 @@ def _backend_class(backend: Backend) -> type[SpeechBackend[Any]]:
             f"TinyTalk backend {backend!r} is not installed: missing Python module {missing!r}. "
             f"From a source checkout run `uv sync --frozen --extra {backend}`."
         ) from exc
-    return getattr(module, class_name)
-
-
-def create_engine(settings: Settings) -> SpeechEngine[SpeechBackend[Any]]:
-    # Lazy imports allow a minimal service installation with only its backend extra.
-    backend_class = _backend_class(settings.backend)
-    return SpeechEngine(backend_class(settings))
 
 
 TinyTalkEngine = create_engine

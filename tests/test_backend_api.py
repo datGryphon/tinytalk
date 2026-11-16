@@ -1,8 +1,9 @@
+import builtins
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from tinytalk import engine as engine_module
 from tinytalk import server
 from tinytalk.config import Settings
 from tinytalk.engine import SpeechEngine, SynthesisResult, TinyTalkEngine, create_engine
@@ -62,29 +63,27 @@ def test_controlled_backend_receives_instructions_and_speed(monkeypatch, backend
 
 @pytest.mark.parametrize("backend", ["neutts", "tinytauk", "omnivoice", "silencio2", "chatterbox_nano"])
 def test_missing_backend_extra_has_actionable_error(monkeypatch, backend):
-    def missing_import(_module_name):
-        raise ModuleNotFoundError(f"No module named {backend!r}", name=backend)
+    original_import = builtins.__import__
 
-    monkeypatch.setattr(engine_module, "import_module", missing_import)
+    def missing_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == f"backends.{backend}" and level == 1:
+            raise ModuleNotFoundError(f"No module named {backend!r}", name=backend)
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", missing_import)
 
     expected = rf"uv sync --frozen --extra {backend}"
     with pytest.raises(RuntimeError, match=expected):
         create_engine(Settings(backend=backend))
 
 
-def test_legacy_tinytalk_engine_respects_backend_selection(monkeypatch):
-    seen = []
+def test_legacy_tinytalk_engine_respects_backend_selection():
+    from tinytalk.backends.silencio2 import Silencio2Backend
 
-    def fake_backend_class(backend):
-        seen.append(backend)
-        return FakeControlledEngine
-
-    monkeypatch.setattr(engine_module, "_backend_class", fake_backend_class)
-    settings = Settings(backend="omnivoice")
+    settings = Settings(backend="silencio2")
 
     engine = TinyTalkEngine(settings)
 
     assert type(engine) is SpeechEngine
-    assert isinstance(engine.backend, FakeControlledEngine)
+    assert isinstance(engine.backend, Silencio2Backend)
     assert engine.settings is settings
-    assert seen == ["omnivoice"]

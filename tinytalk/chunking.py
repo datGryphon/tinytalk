@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable, Iterator
 
 import spacy
 
@@ -57,7 +58,7 @@ def split_text(text: str, max_chars: int) -> list[str]:
     return _pack(_pieces(normalized, max_chars), max_chars)
 
 
-def _pieces(text: str, max_chars: int):
+def _pieces(text: str, max_chars: int) -> Iterator[str]:
     for sentence in (sent.text.strip() for sent in _NLP(text).sents):
         for phrase in _SOFT_SPLIT_RE.split(sentence):
             phrase = phrase.strip()
@@ -67,7 +68,7 @@ def _pieces(text: str, max_chars: int):
                 yield from _word_wrap(phrase, max_chars)
 
 
-def _word_wrap(text: str, max_chars: int):
+def _word_wrap(text: str, max_chars: int) -> Iterator[str]:
     current = ""
     for word in text.split(" "):
         if len(word) > max_chars:
@@ -88,7 +89,7 @@ def _word_wrap(text: str, max_chars: int):
         yield current
 
 
-def _pack(pieces, max_chars: int) -> list[str]:
+def _pack(pieces: Iterable[str], max_chars: int) -> list[str]:
     chunks: list[str] = []
     current = ""
 

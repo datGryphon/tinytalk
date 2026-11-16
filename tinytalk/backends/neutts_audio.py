@@ -4,13 +4,16 @@ import librosa
 import numpy as np
 import parselmouth
 import parselmouth.praat
+from numpy.typing import NDArray
 
-from ..audio import _as_float
+from ..audio import AudioSamples, _as_float
 
 _MAX_F0_SCALE = 2 ** (2 / 12)  # ~2 semitones
 
 
-def _pyin(audio_f: np.ndarray, sample_rate: int):
+def _pyin(
+    audio_f: NDArray[np.float64], sample_rate: int
+) -> tuple[NDArray[np.float64], NDArray[np.bool_], NDArray[np.float64]]:
     return librosa.pyin(
         audio_f,
         fmin=50.0,
@@ -22,7 +25,7 @@ def _pyin(audio_f: np.ndarray, sample_rate: int):
 
 
 def compute_f0_mean(
-    audio: np.ndarray,
+    audio: AudioSamples,
     sample_rate: int,
 ) -> float:
     """Compute mean F0 of a chunk (fast, no reconstruction needed)."""
@@ -35,10 +38,10 @@ def compute_f0_mean(
 
 
 def normalize_f0(
-    audio: np.ndarray,
+    audio: AudioSamples,
     sample_rate: int,
     ref_f0_mean: float,
-) -> np.ndarray:
+) -> AudioSamples:
     """Normalize chunk F0 to match reference mean pitch using parselmouth PSOLA."""
     if len(audio) < int(0.1 * sample_rate):
         return audio

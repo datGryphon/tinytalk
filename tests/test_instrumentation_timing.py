@@ -7,11 +7,14 @@ import numpy as np
 import pytest
 
 from tinytalk.config import Settings
-from tinytalk.backends.neutts import NeuTTSBackend
+from tinytalk.backends.neutts import NeuTTSBackend, NeuTTSRequest
 from tinytalk.engine import SpeechEngine
+from tinytalk.quality import QualityResult
+
+_ACCEPTED_QUALITY = QualityResult(0.1, None, None, None, None, False, "confidence", False)
 
 
-def _engine(*, max_retries: int = 0) -> SpeechEngine[NeuTTSBackend]:
+def _engine(*, max_retries: int = 0) -> SpeechEngine[NeuTTSRequest]:
     settings = Settings(
         max_retries=max_retries,
         wer_endpoint="",
@@ -48,7 +51,7 @@ def test_failed_infer_attempt_keeps_elapsed_inference_time():
     engine.backend.tts.infer = infer
     with (
         patch.object(engine.backend, "_apply_generation_settings"),
-        patch.object(engine.backend, "_chunk_wer", return_value=(0.1, "confidence", False)),
+        patch.object(engine.backend, "_chunk_wer", return_value=_ACCEPTED_QUALITY),
     ):
         result = engine.synthesize("hello world")
 
@@ -69,7 +72,7 @@ def test_f0_timing_includes_pitch_analysis():
 
     with (
         patch.object(engine.backend, "_apply_generation_settings"),
-        patch.object(engine.backend, "_chunk_wer", return_value=(0.1, "confidence", False)),
+        patch.object(engine.backend, "_chunk_wer", return_value=_ACCEPTED_QUALITY),
         patch("tinytalk.backends.neutts.compute_f0_mean", side_effect=slow_f0),
     ):
         result = engine.synthesize("hello world")
@@ -97,7 +100,9 @@ def test_f0_continuity_resets_between_requests():
     audio = _audio()
 
     with (
-        patch.object(engine.backend, "_synthesize_chunk", side_effect=lambda *args: (audio, {}, 0)),
+        patch.object(engine.backend, "_synthesize_chunk", side_effect=lambda text, index, count: (
+            audio, {"index": index, "attempts": 1, "duration": 1.0, "status": "accepted"}, 0
+        )),
         patch.object(engine.backend, "_apply_generation_settings"),
         patch("tinytalk.backends.neutts.compute_f0_mean", return_value=440.0),
         patch("tinytalk.backends.neutts.normalize_f0", return_value=audio) as normalize,

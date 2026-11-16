@@ -59,6 +59,10 @@ feature flags unrelated to real backend differences.
   them in `__init__`. Declare resident state on the backend base class, and
   model-specific state on the concrete backend using upstream types. Mark interface
   overrides with `@override`.
+- Type known telemetry fields with `TypedDict`, including backend-specific
+  optional fields, and numeric arrays with their actual NumPy dtype. Preserve
+  the backend's request type through the engine; do not erase it with `Any` or
+  use `object` as a substitute for a known value type.
 - Long input chunking stays in `chunking.py`; backend implementations should not
   invent competing chunkers.
 - Keep request-local state in `SynthesisRequest` (or a typed subclass when

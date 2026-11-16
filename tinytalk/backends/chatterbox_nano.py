@@ -9,6 +9,7 @@ from chatterbox.tts_turbo import ChatterboxTurboTTS
 from ..chunking import split_tagged_text
 from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
+from ..timing import ChunkTiming
 
 
 class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
@@ -62,7 +63,7 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
             raise RuntimeError("engine not loaded. Call load() first")
         start = time.perf_counter()
         audio = self.tts.generate(chunk_text).detach().cpu().numpy().astype(np.float32).reshape(-1)
-        timing: dict[str, object] = {
+        timing: ChunkTiming = {
             "index": index,
             "attempts": 1,
             "duration": len(audio) / self.sample_rate,

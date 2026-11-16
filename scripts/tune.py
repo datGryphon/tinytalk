@@ -19,6 +19,7 @@ import json
 import textwrap
 from dataclasses import replace
 from pathlib import Path
+from typing import TypedDict
 
 from tinytalk.audio import to_wav_bytes
 from tinytalk.backends.neutts import NeuTTSBackend
@@ -30,6 +31,13 @@ CORPUS = Path(__file__).parent.parent / "tests" / "corpus"
 VOICES = Path(__file__).parent.parent / "tests" / "voices"
 
 PROBES = {p.stem: " ".join(p.read_text().split()) for p in sorted(CORPUS.glob("*.txt"))}
+
+
+class TuneResult(TypedDict):
+    params: dict[str, int | float]
+    audio_dir: str
+    per_probe_wer: dict[str, float]
+    mean_wer: float
 
 
 def main() -> None:
@@ -56,7 +64,7 @@ def main() -> None:
     parser.add_argument("--out-json", type=Path, help="write JSON results to this path")
     args = parser.parse_args()
 
-    sweep_fields: list[tuple[str, str, type]] = [
+    sweep_fields: list[tuple[str, str | None, type[int] | type[float]]] = [
         ("temperature", args.temperature, float),
         ("repeat_penalty", args.repeat_penalty, float),
         ("max_chars_per_chunk", args.max_chars_per_chunk, int),
@@ -64,7 +72,7 @@ def main() -> None:
         ("max_retries", args.max_retries, int),
         ("wer_threshold", args.wer_threshold, float),
     ]
-    field_values: dict[str, list] = {}
+    field_values: dict[str, list[int | float]] = {}
     for field_name, raw, typ in sweep_fields:
         if raw is not None:
             field_values[field_name] = [typ(v) for v in raw.split(",")]
@@ -91,8 +99,8 @@ def main() -> None:
     engine.load()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    results: list[dict] = []
-    best_result: dict | None = None
+    results: list[TuneResult] = []
+    best_result: TuneResult | None = None
     best_wer = 1.0
 
     for combo in combos:
@@ -118,7 +126,7 @@ def main() -> None:
             wers.append(wer)
 
         mean_wer = sum(wers) / len(wers)
-        result_entry = {
+        result_entry: TuneResult = {
             "params": {k: v for k, v in combo_dict.items()},
             "audio_dir": str(combo_dir),
             "per_probe_wer": per_probe_wer,

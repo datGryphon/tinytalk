@@ -5,13 +5,15 @@ import math
 import os
 from dataclasses import replace
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 import numpy as np
 
 from tinytalk import engine as engine_module
-from tinytalk.audio import to_wav_bytes
+from tinytalk.audio import AudioSamples, to_wav_bytes
 from tinytalk.backends.tinytauk import TinyTAuKBackend
-from tinytalk.engine import SpeechEngine
+from tinytalk.engine import SpeechEngine, SynthesisRequest
+from tinytalk.timing import AttemptTiming, ChunkTiming, QualityTiming
 from tinytalk.config import Settings
 
 TARGET = (
@@ -27,26 +29,50 @@ HIGH_STYLE = (
 )
 
 
-def _attach(base: SpeechEngine[TinyTAuKBackend], settings: Settings) -> SpeechEngine[TinyTAuKBackend]:
-    engine = SpeechEngine(TinyTAuKBackend(settings))
-    engine.backend.tts = base.backend.tts
-    engine.backend.sample_rate = base.sample_rate
-    engine.backend.loaded = True
-    return engine
+class AcousticMetrics(TypedDict):
+    rms_dbfs: float
+    active_ratio: float
+    f0_median_hz: float | None
+    f0_iqr_hz: float | None
+    f0_std_hz: float | None
 
 
-def _passes(detail: dict, threshold: float) -> bool:
+class SweepRecord(QualityTiming):
+    case: str
+    instructions: str | None
+    chars_per_second: float
+    attempts: int
+    selected_attempt: int
+    selected_seed: int | None
+    selected_gen_seconds: float
+    attempts_detail: list[AttemptTiming]
+    acoustics: AcousticMetrics
+    wav: str
+    live_transcripts: NotRequired[list[str]]
+
+
+def _attach(base: SpeechEngine[SynthesisRequest], settings: Settings) -> SpeechEngine[SynthesisRequest]:
+    assert isinstance(base.backend, TinyTAuKBackend)
+    backend = TinyTAuKBackend(settings)
+    backend.tts = base.backend.tts
+    backend.sample_rate = base.sample_rate
+    backend.loaded = True
+    return SpeechEngine(backend)
+
+
+def _passes(detail: AttemptTiming, threshold: float) -> bool:
     return (
         detail["wer_source"] == "whisper"
         and detail["wer_fallback"] is False
         and detail["cer"] is not None
         and detail["prompt_leak"] is False
+        and detail["wer"] is not None
         and detail["wer"] <= threshold
         and detail["cer"] <= threshold
     )
 
 
-def _selected_detail(chunk: dict) -> dict:
+def _selected_detail(chunk: ChunkTiming) -> AttemptTiming:
     for detail in chunk["attempts_detail"]:
         if detail["seed"] == chunk["seed"] and math.isclose(
             detail["gen_seconds"], chunk["gen_seconds"], rel_tol=0.0, abs_tol=1e-9
@@ -55,7 +81,7 @@ def _selected_detail(chunk: dict) -> dict:
     raise AssertionError(f"selected attempt not found: {chunk}")
 
 
-def _acoustic_metrics(audio: np.ndarray, sample_rate: int) -> dict[str, float | None]:
+def _acoustic_metrics(audio: AudioSamples, sample_rate: int) -> AcousticMetrics:
     wav = np.asarray(audio, dtype=np.float64).squeeze()
     rms = float(np.sqrt(np.mean(wav**2)))
     rms_dbfs = 20.0 * math.log10(max(rms, 1e-12))
@@ -113,13 +139,13 @@ def _acoustic_metrics(audio: np.ndarray, sample_rate: int) -> dict[str, float | 
 
 
 def _run(
-    base: SpeechEngine[TinyTAuKBackend],
+    base: SpeechEngine[SynthesisRequest],
     *,
     settings: Settings,
     name: str,
     instructions: str | None,
     out_dir: Path,
-) -> dict:
+) -> SweepRecord:
     engine = _attach(base, settings)
     result = engine.synthesize(TARGET, instructions=instructions, speed=1.0)
     assert result.timing is not None
@@ -155,7 +181,9 @@ def _run(
     }
 
 
-def _style_sweep(base: SpeechEngine[TinyTAuKBackend], settings: Settings, out_dir: Path) -> list[dict]:
+def _style_sweep(
+    base: SpeechEngine[SynthesisRequest], settings: Settings, out_dir: Path
+) -> list[SweepRecord]:
     records = [
         _run(
             base,
@@ -204,10 +232,10 @@ def _style_sweep(base: SpeechEngine[TinyTAuKBackend], settings: Settings, out_di
 
 
 def _correction_fault_injection(
-    base: SpeechEngine[TinyTAuKBackend],
+    base: SpeechEngine[SynthesisRequest],
     settings: Settings,
     out_dir: Path,
-) -> list[dict]:
+) -> list[SweepRecord]:
     """Exercise the real correction loop without depending on a stochastic model failure.
 
     Every attempt still reaches the live transcription endpoint. For the first

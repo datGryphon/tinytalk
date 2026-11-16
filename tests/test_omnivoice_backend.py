@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from tinytalk.backends import omnivoice as omnivoice_backend
-from tinytalk.engine import SpeechEngine
+from tinytalk.engine import SpeechEngine, SynthesisRequest
 from tinytalk.config import Settings
 from tinytalk.quality import QualityResult
 
@@ -63,7 +63,7 @@ def bad_quality() -> QualityResult:
     )
 
 
-def make_engine(monkeypatch, settings: Settings) -> SpeechEngine[omnivoice_backend.OmniVoiceBackend]:
+def make_engine(monkeypatch, settings: Settings) -> SpeechEngine[SynthesisRequest]:
     monkeypatch.setattr(omnivoice_backend, "OmniVoice", FakeOmniVoice)
     monkeypatch.setattr(
         omnivoice_backend,

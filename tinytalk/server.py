@@ -4,8 +4,9 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Literal, cast
+from typing import Literal
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
@@ -16,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from . import __version__
 from .audio import encode_audio, to_wav_bytes
 from .config import load_settings
-from .engine import create_engine
+from .engine import SynthesisResult, create_engine
 
 settings = load_settings()
 engine = create_engine(settings)
@@ -45,7 +46,7 @@ class SpeechRequest(BaseModel):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Uvicorn configures its handlers before application startup. Reuse those
     # handlers for TinyTalk's app-specific logger so INFO telemetry is visible
     # in service/dev logs without changing the logger name used by tests and
@@ -79,8 +80,7 @@ async def health() -> Response:
 @app.post("/v1/audio/speech")
 async def create_speech(payload: SpeechRequest) -> Response:
     request_start = time.perf_counter()
-    result = None
-    error: Exception | None = None
+    result: SynthesisResult | None = None
     try:
         async with infer_lock:
             result = await run_in_threadpool(
@@ -92,13 +92,9 @@ async def create_speech(payload: SpeechRequest) -> Response:
         wav = to_wav_bytes(result.audio, result.sample_rate)
         body, media_type = await run_in_threadpool(encode_audio, wav, payload.response_format)
     except Exception as exc:
-        error = exc
-
-    total_seconds = time.perf_counter() - request_start
-    if error is not None:
         log.info(json.dumps({
-            "elapsed": total_seconds,
-            "error": type(error).__name__,
+            "elapsed": time.perf_counter() - request_start,
+            "error": type(exc).__name__,
             "backend": settings.backend,
             "chunks": len(result.chunks) if result is not None else None,
             "audio_seconds": None,
@@ -107,12 +103,13 @@ async def create_speech(payload: SpeechRequest) -> Response:
             "wer_fallbacks": None,
             "timing": None,
         }))
-        raise error
+        raise
 
+    total_seconds = time.perf_counter() - request_start
     timing = result.timing
     chunk_count = len(result.chunks)
     audio_seconds = len(result.audio) / result.sample_rate
-    total_attempts = sum(cast(int, chunk["attempts"]) for chunk in timing.chunks) if timing else 0
+    total_attempts = sum(chunk["attempts"] for chunk in timing.chunks) if timing else 0
     wer_fallbacks = timing.wer_fallbacks if timing else 0
     rtf = total_seconds / audio_seconds if audio_seconds > 0 else 0.0
 

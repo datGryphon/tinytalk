@@ -25,7 +25,9 @@ class StubBackend(SpeechBackend[SynthesisRequest]):
         self, request: SynthesisRequest, chunk_text: str, index: int, num_chunks: int,
     ) -> ChunkResult:
         self.calls.append((chunk_text, index, num_chunks))
-        return np.full(2, (index + 1) / 4, dtype=np.float32), {"index": index}, index
+        return np.full(2, (index + 1) / 4, dtype=np.float32), {
+            "index": index, "attempts": 1, "duration": 2 / self.sample_rate, "status": "accepted"
+        }, index
 
     def finalize_request(self, request: SynthesisRequest) -> None:
         self.finalized.append(request)
@@ -78,7 +80,11 @@ def test_assembles_chunks_and_aggregates_timings(silence_ms):
     assert result.audio.dtype == np.float32
     assert result.sample_rate == 1000
     assert result.chunks == ["one", "two", "three"]
-    assert result.timing.chunks == [{"index": 0}, {"index": 1}, {"index": 2}]
+    assert result.timing is not None
+    assert result.timing.chunks == [
+        {"index": index, "attempts": 1, "duration": 0.002, "status": "accepted"}
+        for index in range(3)
+    ]
     assert result.timing.wer_fallbacks == 3
     assert backend.finalized == [SynthesisRequest("calm", 1.2)]
 
@@ -86,7 +92,9 @@ def test_assembles_chunks_and_aggregates_timings(silence_ms):
 def test_single_chunk_keeps_native_audio(monkeypatch):
     audio = np.array([0.1, -0.2], dtype=np.float32)
     backend = StubBackend(Settings())
-    monkeypatch.setattr(backend, "synthesize_chunk", lambda *args: (audio, {}, 0))
+    monkeypatch.setattr(backend, "synthesize_chunk", lambda *args: (
+        audio, {"index": 0, "attempts": 1, "duration": 2 / backend.sample_rate, "status": "accepted"}, 0
+    ))
     engine = SpeechEngine(backend)
     engine.load()
     result = engine.synthesize("one")

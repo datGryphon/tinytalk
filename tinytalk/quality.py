@@ -8,9 +8,8 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-import numpy as np
-
-from .audio import chunk_confidence, to_wav_bytes
+from .audio import AudioArray, chunk_confidence, to_wav_bytes
+from .timing import QualitySource, QualityTiming
 
 _APOSTROPHES = frozenset({"'", "’", "ʼ", "＇"})
 
@@ -32,10 +31,10 @@ class QualityResult:
     deletions: int | None
     insertions: int | None
     prompt_leak: bool
-    source: str
+    source: QualitySource
     fallback: bool
 
-    def timing_fields(self) -> dict[str, object]:
+    def timing_fields(self) -> QualityTiming:
         return {
             "wer": self.wer,
             "cer": self.cer,
@@ -158,7 +157,7 @@ def evaluate_transcript(
     *,
     prompt_text: str | None = None,
     scaffold_text: str | None = None,
-    source: str = "whisper",
+    source: QualitySource = "whisper",
     fallback: bool = False,
 ) -> QualityResult:
     target_words = normalize_text(target_text).split()
@@ -195,7 +194,7 @@ def evaluate_transcript(
 
 
 def _confidence_quality(
-    wav: np.ndarray,
+    wav: AudioArray,
     target_text: str,
     *,
     fallback: bool,
@@ -213,7 +212,7 @@ def _confidence_quality(
 
 
 def evaluate_audio(
-    wav: np.ndarray,
+    wav: AudioArray,
     sample_rate: int,
     *,
     target_text: str,

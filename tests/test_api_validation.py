@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -10,6 +13,9 @@ from fastapi.testclient import TestClient
 from tinytalk import server
 from tinytalk.config import Settings
 from tinytalk.engine import RequestTiming, SpeechEngine, SynthesisResult
+
+if TYPE_CHECKING:
+    from tinytalk.backends.neutts import NeuTTSRequest
 
 
 class FakeEngine:
@@ -91,6 +97,7 @@ def _make_timing() -> RequestTiming:
                 "index": 0,
                 "attempts": 1,
                 "duration": 1.0,
+                "status": "accepted",
                 "repeat_penalty": 1.0,
                 "wer": 0.1,
                 "wer_source": "whisper",
@@ -106,7 +113,7 @@ def _make_timing() -> RequestTiming:
                         "wer_source": "whisper",
                         "wer_fallback": False,
                         "repeat_penalty": 1.0,
-                        "accepted": True,
+                        "status": "accepted",
                     },
                 ],
             },
@@ -114,6 +121,7 @@ def _make_timing() -> RequestTiming:
                 "index": 1,
                 "attempts": 2,
                 "duration": 1.5,
+                "status": "fallback",
                 "repeat_penalty": 1.1,
                 "wer": 0.2,
                 "wer_source": "confidence",
@@ -129,7 +137,7 @@ def _make_timing() -> RequestTiming:
                         "wer_source": "whisper",
                         "wer_fallback": False,
                         "repeat_penalty": 1.0,
-                        "accepted": False,
+                        "status": None,
                     },
                     {
                         "attempt": 1,
@@ -140,7 +148,7 @@ def _make_timing() -> RequestTiming:
                         "wer_source": "confidence",
                         "wer_fallback": True,
                         "repeat_penalty": 1.1,
-                        "accepted": True,
+                        "status": "fallback",
                     },
                 ],
             },
@@ -213,8 +221,8 @@ def test_timing_logged_as_json_line(monkeypatch, caplog):
     # The server emits the raw chunk list under "timing".
     assert len(payload["timing"]) == 2
     detail = payload["timing"][1]["attempts_detail"]
-    assert detail[0]["accepted"] is False
-    assert detail[1]["accepted"] is True
+    assert detail[0]["status"] is None
+    assert detail[1]["status"] == "fallback"
     assert detail[1]["wer_fallback"] is True
 
 
@@ -227,7 +235,7 @@ def _good_audio() -> np.ndarray:
     )
 
 
-def _real_engine_with_fake_tts() -> SpeechEngine:
+def _real_engine_with_fake_tts() -> SpeechEngine[NeuTTSRequest]:
     """A real engine with a fake NeuTTS backbone so synthesize succeeds offline."""
     voices = Path(__file__).parent / "voices"
     settings = Settings(

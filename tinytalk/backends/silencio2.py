@@ -13,6 +13,7 @@ from huggingface_hub import snapshot_download
 from ..chunking import split_tagged_text
 from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
+from ..timing import ChunkTiming
 
 if TYPE_CHECKING:
     from silencio2 import Silencio2TTS
@@ -136,7 +137,7 @@ class Silencio2Backend(SpeechBackend[SynthesisRequest]):
         if audio.ndim != 1:
             audio = audio.reshape(-1)
 
-        timing: dict[str, object] = {
+        timing: ChunkTiming = {
             "index": index,
             "attempts": 1,
             "duration": float(len(audio) / self.sample_rate),

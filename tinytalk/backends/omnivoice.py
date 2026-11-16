@@ -9,10 +9,11 @@ import torch
 from omnivoice.models.omnivoice import OmniVoice, VoiceClonePrompt
 
 from .. import engine as engine_module
-from ..audio import edge_fade, peak_limit, trim_edge_silence
+from ..audio import AudioArray, AudioSamples, edge_fade, peak_limit, trim_edge_silence
 from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
+from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, VoiceMode
 
 _RETRY_CLASS_TEMPERATURE_STEP = 0.2
 _MAX_RETRY_CLASS_TEMPERATURE = 1.0
@@ -79,12 +80,12 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         language = self.settings.omnivoice_language.strip() or None
         mode = self._mode(instructions)
         num_attempts = self.settings.max_retries + 1
-        best_audio: np.ndarray | None = None
+        best_audio: AudioSamples | None = None
         best_quality: QualityResult | None = None
         best_attempt = -1
         best_temperature = 0.0
         wer_fallbacks = 0
-        attempt_details: list[dict[str, object]] = []
+        attempt_details: list[AttemptTiming] = []
 
         for attempt in range(num_attempts):
             temperature = min(
@@ -140,12 +141,12 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         attempt: int,
         index: int,
         num_chunks: int,
-        mode: str,
+        mode: VoiceMode,
         instructions: str | None,
         speed: float | None,
         language: str | None,
         temperature: float,
-    ) -> tuple[np.ndarray, QualityResult, dict[str, object]]:
+    ) -> tuple[AudioSamples, QualityResult, AttemptTiming]:
         raw_audio, t_infer = self._generate_audio(
             chunk_text,
             mode=mode,
@@ -166,7 +167,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
             instructions=instructions,
         )
 
-        detail: dict[str, object] = {
+        detail: AttemptTiming = {
             "attempt": attempt,
             "t_infer": t_infer,
             "t_dsp": t_dsp,
@@ -183,12 +184,12 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         self,
         text: str,
         *,
-        mode: str,
+        mode: VoiceMode,
         instructions: str | None,
         language: str | None,
         speed: float | None,
         temperature: float,
-    ) -> tuple[np.ndarray, float]:
+    ) -> tuple[AudioArray, float]:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
@@ -209,11 +210,11 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
 
     def _postprocess_audio(
         self,
-        audio: np.ndarray,
+        audio: AudioArray,
         *,
         index: int,
         num_chunks: int,
-    ) -> tuple[np.ndarray, float]:
+    ) -> tuple[AudioSamples, float]:
         start = time.perf_counter()
         wav = np.asarray(audio, dtype=np.float32).squeeze()
         if wav.ndim != 1 or wav.size == 0:
@@ -231,10 +232,10 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
 
     def _evaluate_quality(
         self,
-        wav: np.ndarray,
+        wav: AudioSamples,
         chunk_text: str,
         *,
-        mode: str,
+        mode: VoiceMode,
         instructions: str | None,
     ) -> tuple[QualityResult, float]:
         start = time.perf_counter()
@@ -253,21 +254,21 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         self,
         *,
         index: int,
-        mode: str,
-        audio: np.ndarray,
+        mode: VoiceMode,
+        audio: AudioSamples,
         quality: QualityResult,
         temperature: float,
         selected_attempt: int,
-        details: list[dict[str, object]],
-    ) -> dict[str, object]:
-        status = (
+        details: list[AttemptTiming],
+    ) -> ChunkTiming:
+        status: AttemptStatus = (
             "accepted"
             if quality_is_acceptable(quality, self.settings.wer_threshold)
             else "fallback"
         )
         details[selected_attempt]["status"] = status
 
-        timing: dict[str, object] = {
+        timing: ChunkTiming = {
             "index": index,
             "attempts": len(details),
             "status": status,
@@ -281,7 +282,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         timing.update(quality.timing_fields())
         return timing
 
-    def _mode(self, instructions: str | None) -> str:
+    def _mode(self, instructions: str | None) -> VoiceMode:
         if instructions:
             return "design"
         if self.voice_clone_prompt is not None:
