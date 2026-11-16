@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from . import __version__
 from .audio import encode_audio, to_wav_bytes
 from .config import load_settings
 from .engine import SynthesisResult, create_engine
+from .timing import RequestLog
 
 settings = load_settings()
 engine = create_engine(settings)
@@ -27,7 +27,7 @@ log = logging.getLogger("tinytalk.server")
 
 class SpeechRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    input: str = Field(min_length=1)
+    input: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     model: str | None = None
     voice: str | None = None
     instructions: str | None = None
@@ -35,14 +35,10 @@ class SpeechRequest(BaseModel):
     speed: float | None = Field(default=None, ge=0.25, le=4.0)
     stream: Literal[False] = False
 
-    @model_validator(mode="after")
-    def normalize_input(self) -> SpeechRequest:
-        self.input = self.input.strip()
-        if not self.input:
-            raise ValueError("input must not be empty")
-        if self.instructions is not None:
-            self.instructions = self.instructions.strip() or None
-        return self
+    @field_validator("instructions")
+    @classmethod
+    def normalize_instructions(cls, value: str | None) -> str | None:
+        return (value.strip() or None) if value is not None else None
 
 
 @asynccontextmanager
@@ -92,37 +88,37 @@ async def create_speech(payload: SpeechRequest) -> Response:
         wav = to_wav_bytes(result.audio, result.sample_rate)
         body, media_type = await run_in_threadpool(encode_audio, wav, payload.response_format)
     except Exception as exc:
-        log.info(json.dumps({
-            "elapsed": time.perf_counter() - request_start,
-            "error": type(exc).__name__,
-            "backend": settings.backend,
-            "chunks": len(result.chunks) if result is not None else None,
-            "audio_seconds": None,
-            "rtf": None,
-            "attempts": None,
-            "wer_fallbacks": None,
-            "timing": None,
-        }))
+        log.info(RequestLog(
+            elapsed=time.perf_counter() - request_start,
+            error=type(exc).__name__,
+            backend=settings.backend,
+            chunks=len(result.chunks) if result is not None else None,
+            audio_seconds=None,
+            rtf=None,
+            attempts=None,
+            wer_fallbacks=None,
+            timing=None,
+        ).model_dump_json(exclude_unset=True))
         raise
 
     total_seconds = time.perf_counter() - request_start
     timing = result.timing
     chunk_count = len(result.chunks)
     audio_seconds = len(result.audio) / result.sample_rate
-    total_attempts = sum(chunk["attempts"] for chunk in timing.chunks) if timing else 0
+    total_attempts = timing.total_attempts if timing else 0
     wer_fallbacks = timing.wer_fallbacks if timing else 0
     rtf = total_seconds / audio_seconds if audio_seconds > 0 else 0.0
 
-    log.info(json.dumps({
-        "elapsed": total_seconds,
-        "audio_seconds": audio_seconds,
-        "rtf": rtf,
-        "backend": settings.backend,
-        "chunks": chunk_count,
-        "attempts": total_attempts,
-        "wer_fallbacks": wer_fallbacks,
-        "timing": timing.chunks if timing else None,
-    }))
+    log.info(RequestLog(
+        elapsed=total_seconds,
+        audio_seconds=audio_seconds,
+        rtf=rtf,
+        backend=settings.backend,
+        chunks=chunk_count,
+        attempts=total_attempts,
+        wer_fallbacks=wer_fallbacks,
+        timing=timing.chunks if timing else None,
+    ).model_dump_json(exclude_unset=True))
 
     headers = {
         "X-TinyTalk-Chunks": str(chunk_count),

@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 import math
 import os
-from dataclasses import replace
 from pathlib import Path
-from typing import NotRequired, TypedDict
 
 import numpy as np
+from pydantic import BaseModel
 
 from tinytalk import engine as engine_module
 from tinytalk.audio import AudioSamples, to_wav_bytes
@@ -29,7 +28,7 @@ HIGH_STYLE = (
 )
 
 
-class AcousticMetrics(TypedDict):
+class AcousticMetrics(BaseModel):
     rms_dbfs: float
     active_ratio: float
     f0_median_hz: float | None
@@ -44,11 +43,11 @@ class SweepRecord(QualityTiming):
     attempts: int
     selected_attempt: int
     selected_seed: int | None
-    selected_gen_seconds: float
+    selected_gen_seconds: float | None
     attempts_detail: list[AttemptTiming]
     acoustics: AcousticMetrics
     wav: str
-    live_transcripts: NotRequired[list[str]]
+    live_transcripts: list[str] | None = None
 
 
 def _attach(base: SpeechEngine[SynthesisRequest], settings: Settings) -> SpeechEngine[SynthesisRequest]:
@@ -62,23 +61,18 @@ def _attach(base: SpeechEngine[SynthesisRequest], settings: Settings) -> SpeechE
 
 def _passes(detail: AttemptTiming, threshold: float) -> bool:
     return (
-        detail["wer_source"] == "whisper"
-        and detail["wer_fallback"] is False
-        and detail["cer"] is not None
-        and detail["prompt_leak"] is False
-        and detail["wer"] is not None
-        and detail["wer"] <= threshold
-        and detail["cer"] <= threshold
+        detail.wer_source == "whisper"
+        and detail.wer_fallback is False
+        and detail.cer is not None
+        and detail.prompt_leak is False
+        and detail.wer is not None
+        and detail.wer <= threshold
+        and detail.cer <= threshold
     )
 
 
 def _selected_detail(chunk: ChunkTiming) -> AttemptTiming:
-    for detail in chunk["attempts_detail"]:
-        if detail["seed"] == chunk["seed"] and math.isclose(
-            detail["gen_seconds"], chunk["gen_seconds"], rel_tol=0.0, abs_tol=1e-9
-        ):
-            return detail
-    raise AssertionError(f"selected attempt not found: {chunk}")
+    return next(detail for detail in chunk.attempts_detail if detail.status is not None)
 
 
 def _acoustic_metrics(audio: AudioSamples, sample_rate: int) -> AcousticMetrics:
@@ -129,13 +123,13 @@ def _acoustic_metrics(audio: AudioSamples, sample_rate: int) -> AcousticMetrics:
         f0_iqr = None
         f0_std = None
 
-    return {
-        "rms_dbfs": rms_dbfs,
-        "active_ratio": active_ratio,
-        "f0_median_hz": f0_median,
-        "f0_iqr_hz": f0_iqr,
-        "f0_std_hz": f0_std,
-    }
+    return AcousticMetrics(
+        rms_dbfs=rms_dbfs,
+        active_ratio=active_ratio,
+        f0_median_hz=f0_median,
+        f0_iqr_hz=f0_iqr,
+        f0_std_hz=f0_std,
+    )
 
 
 def _run(
@@ -151,34 +145,27 @@ def _run(
     assert result.timing is not None
     assert len(result.chunks) == 1
     chunk = result.timing.chunks[0]
-    for detail in chunk["attempts_detail"]:
-        assert detail["wer_source"] == "whisper", detail
-        assert detail["wer_fallback"] is False, detail
-        assert detail["cer"] is not None, detail
+    for detail in chunk.attempts_detail:
+        assert detail.wer_source == "whisper", detail
+        assert detail.wer_fallback is False, detail
+        assert detail.cer is not None, detail
 
     wav_path = out_dir / f"{name}.wav"
     wav_path.write_bytes(to_wav_bytes(result.audio, result.sample_rate))
     selected = _selected_detail(chunk)
-    return {
-        "case": name,
-        "instructions": instructions,
-        "chars_per_second": settings.tinytauk_chars_per_second,
-        "attempts": len(chunk["attempts_detail"]),
-        "selected_attempt": selected["attempt"],
-        "selected_seed": chunk["seed"],
-        "selected_gen_seconds": chunk["gen_seconds"],
-        "wer": chunk["wer"],
-        "cer": chunk["cer"],
-        "substitutions": chunk["substitutions"],
-        "deletions": chunk["deletions"],
-        "insertions": chunk["insertions"],
-        "prompt_leak": chunk["prompt_leak"],
-        "wer_source": chunk["wer_source"],
-        "wer_fallback": chunk["wer_fallback"],
-        "attempts_detail": chunk["attempts_detail"],
-        "acoustics": _acoustic_metrics(result.audio, result.sample_rate),
-        "wav": str(wav_path),
-    }
+    return SweepRecord(
+        case=name,
+        instructions=instructions,
+        chars_per_second=settings.tinytauk_chars_per_second,
+        attempts=len(chunk.attempts_detail),
+        selected_attempt=selected.attempt,
+        selected_seed=chunk.seed,
+        selected_gen_seconds=chunk.gen_seconds,
+        **chunk.model_dump(include=set(QualityTiming.model_fields)),
+        attempts_detail=chunk.attempts_detail,
+        acoustics=_acoustic_metrics(result.audio, result.sample_rate),
+        wav=str(wav_path),
+    )
 
 
 def _style_sweep(
@@ -187,26 +174,26 @@ def _style_sweep(
     records = [
         _run(
             base,
-            settings=replace(settings, max_retries=0),
+            settings=settings.model_copy(update={"max_retries": 0}),
             name="style-low-energy",
             instructions=LOW_STYLE,
             out_dir=out_dir,
         ),
         _run(
             base,
-            settings=replace(settings, max_retries=0),
+            settings=settings.model_copy(update={"max_retries": 0}),
             name="style-high-energy",
             instructions=HIGH_STYLE,
             out_dir=out_dir,
         ),
     ]
     for record in records:
-        selected = record["attempts_detail"][0]
+        selected = record.attempts_detail[0]
         assert _passes(selected, settings.wer_threshold), record
 
     low, high = records
-    low_f0 = low["acoustics"]["f0_median_hz"]
-    high_f0 = high["acoustics"]["f0_median_hz"]
+    low_f0 = low.acoustics.f0_median_hz
+    high_f0 = high.acoustics.f0_median_hz
     semitones = None
     if low_f0 and high_f0:
         semitones = 12.0 * math.log2(high_f0 / low_f0)
@@ -215,13 +202,13 @@ def _style_sweep(
     print(
         json.dumps(
             {
-                "low": low["acoustics"],
-                "high": high["acoustics"],
+                "low": low.acoustics.model_dump(),
+                "high": high.acoustics.model_dump(),
                 "high_minus_low_rms_db": (
-                    high["acoustics"]["rms_dbfs"] - low["acoustics"]["rms_dbfs"]
+                    high.acoustics.rms_dbfs - low.acoustics.rms_dbfs
                 ),
                 "high_minus_low_active_ratio": (
-                    high["acoustics"]["active_ratio"] - low["acoustics"]["active_ratio"]
+                    high.acoustics.active_ratio - low.acoustics.active_ratio
                 ),
                 "high_minus_low_pitch_semitones": semitones,
             },
@@ -262,7 +249,7 @@ def _correction_fault_injection(
     try:
         record = _run(
             base,
-            settings=replace(settings, max_retries=2),
+            settings=settings.model_copy(update={"max_retries": 2}),
             name="correction-fault-injected",
             instructions=None,
             out_dir=out_dir,
@@ -270,37 +257,27 @@ def _correction_fault_injection(
     finally:
         engine_module.transcribe_chunk = real_transcribe
 
-    details = record["attempts_detail"]
+    details = record.attempts_detail
     assert len(details) >= 2, record
     first = details[0]
-    selected = details[record["selected_attempt"]]
+    selected = details[record.selected_attempt]
 
     assert not _passes(first, settings.wer_threshold), record
-    assert first["deletions"] is not None and first["insertions"] is not None, record
-    assert first["deletions"] > first["insertions"], record
-    assert details[1]["seed"] != first["seed"], record
-    assert details[1]["gen_seconds"] > first["gen_seconds"], record
-    assert record["selected_attempt"] > 0, record
+    assert first.deletions is not None and first.insertions is not None, record
+    assert first.deletions > first.insertions, record
+    assert details[1].seed != first.seed, record
+    assert details[1].gen_seconds > first.gen_seconds, record
+    assert record.selected_attempt > 0, record
     assert _passes(selected, settings.wer_threshold), record
     assert len(live_transcripts) >= 2, record
 
-    record["live_transcripts"] = live_transcripts
+    record.live_transcripts = live_transcripts
     print("\nCORRECTION FAULT INJECTION")
-    print(
-        json.dumps(
-            {
-                "attempts": record["attempts"],
-                "selected_attempt": record["selected_attempt"],
-                "selected_seed": record["selected_seed"],
-                "selected_gen_seconds": record["selected_gen_seconds"],
-                "wer": record["wer"],
-                "cer": record["cer"],
-                "live_transcripts": live_transcripts,
-                "attempts_detail": details,
-            },
-            indent=2,
-        )
-    )
+    print(record.model_dump_json(
+        include={"attempts", "selected_attempt", "selected_seed",
+                 "selected_gen_seconds", "wer", "cer", "live_transcripts", "attempts_detail"},
+        exclude_unset=True, indent=2,
+    ))
     return [record]
 
 
@@ -329,7 +306,10 @@ def main() -> None:
 
     style = _style_sweep(base, settings, out_dir)
     correction = _correction_fault_injection(base, settings, out_dir)
-    records = {"style": style, "correction": correction}
+    records = {
+        name: [record.model_dump(mode="json", exclude_unset=True) for record in group]
+        for name, group in (("style", style), ("correction", correction))
+    }
 
     summary = out_dir / "results.json"
     summary.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")

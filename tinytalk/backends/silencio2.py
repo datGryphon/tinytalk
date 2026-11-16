@@ -137,11 +137,11 @@ class Silencio2Backend(SpeechBackend[SynthesisRequest]):
         if audio.ndim != 1:
             audio = audio.reshape(-1)
 
-        timing: ChunkTiming = {
-            "index": index,
-            "attempts": 1,
-            "duration": float(len(audio) / self.sample_rate),
-            "t_infer": t_infer,
-            "status": "accepted",
-        }
+        timing = ChunkTiming(
+            index=index,
+            attempts=1,
+            duration=len(audio) / self.sample_rate,
+            t_infer=t_infer,
+            status="accepted",
+        )
         return audio, timing, 0

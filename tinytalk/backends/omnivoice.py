@@ -103,7 +103,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
                 language=language,
                 temperature=temperature,
             )
-            wer_fallbacks += int(quality.fallback)
+            wer_fallbacks += int(quality.wer_fallback)
 
             accepted = quality_is_acceptable(quality, self.settings.wer_threshold)
             if (
@@ -167,17 +167,17 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
             instructions=instructions,
         )
 
-        detail: AttemptTiming = {
-            "attempt": attempt,
-            "t_infer": t_infer,
-            "t_dsp": t_dsp,
-            "t_wer_check": t_wer_check,
-            "repeat_penalty": None,
-            "class_temperature": temperature,
-            "mode": mode,
-            "status": None,
-        }
-        detail.update(quality.timing_fields())
+        detail = AttemptTiming(
+            attempt=attempt,
+            t_infer=t_infer,
+            t_dsp=t_dsp,
+            t_wer_check=t_wer_check,
+            repeat_penalty=None,
+            class_temperature=temperature,
+            mode=mode,
+            status=None,
+            **quality.model_dump(),
+        )
         return wav, quality, detail
 
     def _generate_audio(
@@ -266,21 +266,20 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
             if quality_is_acceptable(quality, self.settings.wer_threshold)
             else "fallback"
         )
-        details[selected_attempt]["status"] = status
+        details[selected_attempt].status = status
 
-        timing: ChunkTiming = {
-            "index": index,
-            "attempts": len(details),
-            "status": status,
-            "duration": float(len(audio) / self.sample_rate),
-            "repeat_penalty": None,
-            "class_temperature": temperature,
-            "mode": mode,
-            "t_f0": 0.0,
-            "attempts_detail": details,
-        }
-        timing.update(quality.timing_fields())
-        return timing
+        return ChunkTiming(
+            index=index,
+            attempts=len(details),
+            status=status,
+            duration=len(audio) / self.sample_rate,
+            repeat_penalty=None,
+            class_temperature=temperature,
+            mode=mode,
+            t_f0=0.0,
+            attempts_detail=details,
+            **quality.model_dump(),
+        )
 
     def _mode(self, instructions: str | None) -> VoiceMode:
         if instructions:

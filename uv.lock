@@ -2170,6 +2170,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "numpy" },
+    { name = "pydantic" },
     { name = "spacy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -2189,7 +2190,6 @@ omnivoice = [
 silencio2 = [
     { name = "einops" },
     { name = "huggingface-hub" },
-    { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "safetensors" },
@@ -2224,7 +2224,7 @@ requires-dist = [
     { name = "omnivoice", marker = "extra == 'omnivoice'", specifier = "==0.2.1" },
     { name = "openai-whisper", marker = "extra == 'test'" },
     { name = "praat-parselmouth", marker = "extra == 'neutts'" },
-    { name = "pydantic", marker = "extra == 'silencio2'" },
+    { name = "pydantic", specifier = ">=2.11" },
     { name = "pytest", marker = "extra == 'test'" },
     { name = "pyyaml", marker = "extra == 'silencio2'" },
     { name = "requests", marker = "extra == 'silencio2'", specifier = ">=2.20" },

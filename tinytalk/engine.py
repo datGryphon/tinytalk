@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from .audio import AudioSamples, silence
 from .chunking import split_text
 from .config import Settings
-from .quality import QualityResult, transcribe_chunk
-from .timing import ChunkTiming, QualityTiming
+from .quality import transcribe_chunk
+from .timing import ChunkTiming, RequestTiming
 
 if TYPE_CHECKING:
     from .backends.neutts import NeuTTSRequest
@@ -18,24 +18,25 @@ if TYPE_CHECKING:
 type ChunkResult = tuple[AudioSamples, ChunkTiming, int]
 
 
-@dataclass(frozen=True)
-class RequestTiming:
-    """Backend timing payload for one synthesis request."""
+class SynthesisResult(BaseModel):
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    chunks: list[ChunkTiming]
-    wer_fallbacks: int = 0
-
-
-@dataclass(frozen=True)
-class SynthesisResult:
     audio: AudioSamples
     sample_rate: int
     chunks: list[str]
     timing: RequestTiming | None = None
 
+    @field_validator("audio")
+    @classmethod
+    def _validate_audio(cls, audio: AudioSamples) -> AudioSamples:
+        if audio.dtype != np.float32:
+            raise ValueError("synthesis audio must be float32")
+        return audio
 
-@dataclass
-class SynthesisRequest:
+
+class SynthesisRequest(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     instructions: str | None
     speed: float | None
 
@@ -77,21 +78,6 @@ class SpeechBackend[RequestT: SynthesisRequest](ABC):
 
     def finalize_request(self, request: RequestT) -> None:
         pass
-
-    @staticmethod
-    def _quality_timing_fields(quality: QualityResult | None) -> QualityTiming:
-        if quality is None:
-            return {
-                "wer": None,
-                "cer": None,
-                "substitutions": None,
-                "deletions": None,
-                "insertions": None,
-                "prompt_leak": False,
-                "wer_source": None,
-                "wer_fallback": False,
-            }
-        return quality.timing_fields()
 
 
 class SpeechEngine[RequestT: SynthesisRequest]:

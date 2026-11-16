@@ -17,14 +17,13 @@ import argparse
 import itertools
 import json
 import textwrap
-from dataclasses import replace
 from pathlib import Path
-from typing import TypedDict
+from pydantic import BaseModel
 
 from tinytalk.audio import to_wav_bytes
 from tinytalk.backends.neutts import NeuTTSBackend
 from tinytalk.engine import SpeechEngine
-from tinytalk.config import load_settings
+from tinytalk.config import Settings, load_settings
 from tinytalk.wer import transcribe_chunk, word_error_rate
 
 CORPUS = Path(__file__).parent.parent / "tests" / "corpus"
@@ -33,7 +32,7 @@ VOICES = Path(__file__).parent.parent / "tests" / "voices"
 PROBES = {p.stem: " ".join(p.read_text().split()) for p in sorted(CORPUS.glob("*.txt"))}
 
 
-class TuneResult(TypedDict):
+class TuneResult(BaseModel):
     params: dict[str, int | float]
     audio_dir: str
     per_probe_wer: dict[str, float]
@@ -83,9 +82,8 @@ def main() -> None:
         "ref_text": args.ref_text,
         "wer_endpoint": args.wer_endpoint,
     }
-    base_settings = replace(
-        load_settings(),
-        **{k: v for k, v in overrides.items() if v is not None},
+    base_settings = Settings.model_validate(
+        load_settings().model_dump() | {k: v for k, v in overrides.items() if v is not None}
     )
 
     for field_name, raw, typ in sweep_fields:
@@ -105,7 +103,7 @@ def main() -> None:
 
     for combo in combos:
         combo_dict = dict(zip([fn for fn, _, _ in sweep_fields], combo))
-        engine.backend.settings = replace(engine.settings, **combo_dict)
+        engine.backend.settings = Settings.model_validate(engine.settings.model_dump() | combo_dict)
 
         human_parts = [f"{k}={v}" for k, v in combo_dict.items()]
         print(f"{' | '.join(human_parts)}")
@@ -126,12 +124,12 @@ def main() -> None:
             wers.append(wer)
 
         mean_wer = sum(wers) / len(wers)
-        result_entry: TuneResult = {
-            "params": {k: v for k, v in combo_dict.items()},
-            "audio_dir": str(combo_dir),
-            "per_probe_wer": per_probe_wer,
-            "mean_wer": round(mean_wer, 4),
-        }
+        result_entry = TuneResult(
+            params=combo_dict,
+            audio_dir=str(combo_dir),
+            per_probe_wer=per_probe_wer,
+            mean_wer=round(mean_wer, 4),
+        )
         results.append(result_entry)
         print(f"  mean WER: {mean_wer:.1%}")
 
@@ -140,14 +138,14 @@ def main() -> None:
             best_result = result_entry
 
     if best_result is not None:
-        params = best_result["params"]
+        params = best_result.params
         param_str = ", ".join(f"{k}={v}" for k, v in params.items())
-        print(f"\nbest: {param_str} mean_wer={best_result['mean_wer']}")
+        print(f"\nbest: {param_str} mean_wer={best_result.mean_wer}")
 
     if args.out_json is not None:
-        results.sort(key=lambda r: r["mean_wer"])
+        results.sort(key=lambda r: r.mean_wer)
         with open(args.out_json, "w") as f:
-            json.dump(results, f, indent=2)
+            json.dump([result.model_dump(mode="json") for result in results], f, indent=2)
         print(f"\nJSON written to {args.out_json}")
 
 

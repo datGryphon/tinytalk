@@ -2,8 +2,9 @@ import numpy as np
 import pytest
 
 from tinytalk.config import Settings
-from tinytalk.engine import ChunkResult, SpeechBackend, SpeechEngine, SynthesisRequest
+from tinytalk.engine import ChunkResult, SpeechBackend, SpeechEngine, SynthesisRequest, SynthesisResult
 from tinytalk.quality import QualityResult
+from tinytalk.timing import AttemptTiming, ChunkTiming, QualityTiming
 
 
 class StubBackend(SpeechBackend[SynthesisRequest]):
@@ -19,15 +20,15 @@ class StubBackend(SpeechBackend[SynthesisRequest]):
         self.loaded = True
 
     def prepare_request(self, *, instructions: str | None, speed: float | None) -> SynthesisRequest:
-        return SynthesisRequest(instructions, speed)
+        return SynthesisRequest(instructions=instructions, speed=speed)
 
     def synthesize_chunk(
         self, request: SynthesisRequest, chunk_text: str, index: int, num_chunks: int,
     ) -> ChunkResult:
         self.calls.append((chunk_text, index, num_chunks))
-        return np.full(2, (index + 1) / 4, dtype=np.float32), {
-            "index": index, "attempts": 1, "duration": 2 / self.sample_rate, "status": "accepted"
-        }, index
+        return np.full(2, (index + 1) / 4, dtype=np.float32), ChunkTiming(
+            index=index, attempts=1, duration=2 / self.sample_rate, status="accepted"
+        ), index
 
     def finalize_request(self, request: SynthesisRequest) -> None:
         self.finalized.append(request)
@@ -52,9 +53,9 @@ def test_engine_delegates_resident_state_and_loading():
 
 
 def test_shared_quality_timing_fields():
-    quality = QualityResult(0.1, None, None, None, None, False, "confidence", False)
-    assert SpeechBackend._quality_timing_fields(quality) == quality.timing_fields()
-    assert SpeechBackend._quality_timing_fields(None) == {
+    quality = QualityResult(wer=0.1, wer_source="confidence")
+    assert quality.model_dump() == QualityTiming(wer=0.1, wer_source="confidence").model_dump()
+    assert QualityTiming().model_dump() == {
         "wer": None,
         "cer": None,
         "substitutions": None,
@@ -64,6 +65,29 @@ def test_shared_quality_timing_fields():
         "wer_source": None,
         "wer_fallback": False,
     }
+
+
+def test_unscored_chunk_omits_unset_quality_fields():
+    timing = ChunkTiming(index=0, attempts=1, duration=1.0, status="accepted")
+    assert timing.model_dump(exclude_unset=True) == {
+        "index": 0, "attempts": 1, "duration": 1.0, "status": "accepted",
+    }
+
+
+def test_failed_scored_attempt_preserves_null_quality_fields():
+    detail = AttemptTiming(
+        attempt=0, t_infer=0.1, t_dsp=0, t_wer_check=0, repeat_penalty=None,
+        status=None, **QualityTiming().model_dump(),
+    )
+    assert detail.model_dump(exclude_unset=True)["wer"] is None
+    assert detail.model_dump(exclude_unset=True)["status"] is None
+    with pytest.raises(ValueError):
+        detail.status = "unknown"
+
+
+def test_synthesis_result_requires_float32_audio():
+    with pytest.raises(ValueError, match="float32"):
+        SynthesisResult(audio=np.zeros(10, dtype=np.float64), sample_rate=24000, chunks=["test"])
 
 
 @pytest.mark.parametrize("silence_ms", [0, 2])
@@ -82,18 +106,18 @@ def test_assembles_chunks_and_aggregates_timings(silence_ms):
     assert result.chunks == ["one", "two", "three"]
     assert result.timing is not None
     assert result.timing.chunks == [
-        {"index": index, "attempts": 1, "duration": 0.002, "status": "accepted"}
+        ChunkTiming(index=index, attempts=1, duration=0.002, status="accepted")
         for index in range(3)
     ]
     assert result.timing.wer_fallbacks == 3
-    assert backend.finalized == [SynthesisRequest("calm", 1.2)]
+    assert backend.finalized == [SynthesisRequest(instructions="calm", speed=1.2)]
 
 
 def test_single_chunk_keeps_native_audio(monkeypatch):
     audio = np.array([0.1, -0.2], dtype=np.float32)
     backend = StubBackend(Settings())
     monkeypatch.setattr(backend, "synthesize_chunk", lambda *args: (
-        audio, {"index": 0, "attempts": 1, "duration": 2 / backend.sample_rate, "status": "accepted"}, 0
+        audio, ChunkTiming(index=0, attempts=1, duration=2 / backend.sample_rate, status="accepted"), 0
     ))
     engine = SpeechEngine(backend)
     engine.load()
@@ -114,7 +138,7 @@ def test_generation_failure_finalizes_and_stops_before_next_chunk(monkeypatch):
     with pytest.raises(ValueError, match="generation failed"):
         engine.synthesize("first second")
     assert backend.calls == [("first", 0, 2)]
-    assert backend.finalized == [SynthesisRequest(None, None)]
+    assert backend.finalized == [SynthesisRequest(instructions=None, speed=None)]
 
 
 def test_requests_have_independent_state():

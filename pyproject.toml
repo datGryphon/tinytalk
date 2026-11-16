@@ -12,6 +12,7 @@ dependencies = [
   "fastapi",
   "uvicorn[standard]",
   "numpy",
+  "pydantic>=2.11",
   "spacy",
 ]
 
@@ -34,7 +35,6 @@ chatterbox_nano = [
 silencio2 = [
   "torch",
   "huggingface-hub",
-  "pydantic",
   "pyyaml",
   "sentencepiece>=0.2.1",
   "tokenizers>=0.21",

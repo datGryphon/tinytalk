@@ -5,7 +5,6 @@ scores each with _chunk_wer (WER), keeps the lowest-WER attempt, early-exits
 when wer <= wer_threshold.
 """
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -20,7 +19,7 @@ from tinytalk.timing import QualitySource
 
 
 def _quality(wer: float, source: QualitySource = "confidence") -> QualityResult:
-    return QualityResult(wer, None, None, None, None, False, source, False)
+    return QualityResult(wer=wer, wer_source=source)
 
 
 def _make_engine(settings: Settings) -> SpeechEngine[NeuTTSRequest]:
@@ -223,19 +222,19 @@ class TestEarlyAcceptTiming:
 
         assert result.timing is not None
         chunk = result.timing.chunks[0]
-        assert chunk["attempts"] == 1  # not 0 — the accepted attempt must be counted
-        accepted = [a for a in chunk["attempts_detail"] if a["status"] == "accepted"]
+        assert chunk.attempts == 1  # not 0 — the accepted attempt must be counted
+        accepted = [a for a in chunk.attempts_detail if a.status == "accepted"]
         assert len(accepted) == 1
-        assert accepted[0]["attempt"] == 0
-        assert accepted[0]["wer"] == 0.1
-        assert accepted[0]["wer_source"] == "confidence"
-        assert accepted[0]["wer_fallback"] is False
-        assert accepted[0]["repeat_penalty"] == 1.0  # base repeat_penalty
-        assert accepted[0]["t_infer"] >= 0.0
-        assert accepted[0]["t_dsp"] > 0.0  # real DSP work was measured
-        assert accepted[0]["t_wer_check"] >= 0.0
-        assert chunk["status"] == "accepted"
-        assert chunk["duration"] > 0.0
+        assert accepted[0].attempt == 0
+        assert accepted[0].wer == 0.1
+        assert accepted[0].wer_source == "confidence"
+        assert accepted[0].wer_fallback is False
+        assert accepted[0].repeat_penalty == 1.0  # base repeat_penalty
+        assert accepted[0].t_infer >= 0.0
+        assert accepted[0].t_dsp > 0.0  # real DSP work was measured
+        assert accepted[0].t_wer_check >= 0.0
+        assert chunk.status == "accepted"
+        assert chunk.duration > 0.0
 
     def test_reroll_then_accept_records_both_attempts(self):
         """A rerolled attempt followed by an accepted one: both attempts are
@@ -254,16 +253,16 @@ class TestEarlyAcceptTiming:
             result = engine.synthesize("hello world test")
 
         chunk = result.timing.chunks[0]
-        assert chunk["attempts"] == 2  # both attempts counted (bug undercounted to 1)
-        assert len(chunk["attempts_detail"]) == 2
-        assert chunk["attempts_detail"][0]["status"] is None  # rerolled
-        accepted = [a for a in chunk["attempts_detail"] if a["status"] == "accepted"]
+        assert chunk.attempts == 2  # both attempts counted (bug undercounted to 1)
+        assert len(chunk.attempts_detail) == 2
+        assert chunk.attempts_detail[0].status is None  # rerolled
+        accepted = [a for a in chunk.attempts_detail if a.status == "accepted"]
         assert len(accepted) == 1
-        assert accepted[0]["attempt"] == 1
-        assert accepted[0]["wer"] == 0.1
-        assert accepted[0]["wer_source"] == "whisper"
-        assert accepted[0]["repeat_penalty"] == 1.1  # base + 1 * reroll_step
-        assert chunk["status"] == "accepted"
+        assert accepted[0].attempt == 1
+        assert accepted[0].wer == 0.1
+        assert accepted[0].wer_source == "whisper"
+        assert accepted[0].repeat_penalty == 1.1  # base + 1 * reroll_step
+        assert chunk.status == "accepted"
 
     def test_server_total_attempts_counts_accepted(self):
         """The accepted attempt contributes to the request attempt total seen by
@@ -275,7 +274,7 @@ class TestEarlyAcceptTiming:
 
         assert result.timing is not None
         assert result.timing.wer_fallbacks == 0
-        assert sum(chunk["attempts"] for chunk in result.timing.chunks) == 1
+        assert sum(chunk.attempts for chunk in result.timing.chunks) == 1
 
 
 # ── exhaust retries ──────────────────────────────────────────────────────────
@@ -324,10 +323,10 @@ class TestExhaustRetries:
         assert rms > 0.01
         assert result.timing is not None
         chunk = result.timing.chunks[0]
-        assert chunk["status"] == "fallback"
-        fallback = [a for a in chunk["attempts_detail"] if a["status"] == "fallback"]
+        assert chunk.status == "fallback"
+        fallback = [a for a in chunk.attempts_detail if a.status == "fallback"]
         assert len(fallback) == 1
-        assert fallback[0]["attempt"] == 1
+        assert fallback[0].attempt == 1
 
 
 # ── fail-open ────────────────────────────────────────────────────────────────
@@ -429,9 +428,9 @@ class TestTimingRedaction:
         assert result.timing is not None
 
         for chunk in result.timing.chunks:
-            assert "text" not in chunk  # raw user input is not retained
-            assert "index" in chunk  # identification is preserved
+            assert "text" not in chunk.model_dump()  # raw user input is not retained
+            assert chunk.index >= 0  # identification is preserved
 
-        blob = json.dumps(result.timing.chunks)
+        blob = result.timing.model_dump_json(exclude_unset=True)
         assert secret not in blob
         assert text not in blob

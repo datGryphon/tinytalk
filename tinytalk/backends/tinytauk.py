@@ -12,7 +12,7 @@ from ..audio import AudioSamples, edge_fade, peak_limit, trim_edge_silence
 from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
-from ..timing import AttemptStatus, AttemptTiming, ChunkTiming
+from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, QualityTiming
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
 _PROMPT_SCAFFOLD = "Based on the following description, generate speech content."
@@ -36,9 +36,6 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
 
     @override
     def load(self) -> None:
-        if self.settings.tinytauk_chars_per_second <= 0:
-            raise ValueError("TINYTALK_TINYTAUK_CHARS_PER_SECOND must be positive")
-
         if self.settings.tinytauk_profile is not None:
             self.tts = TinyTAuK.from_config(self.settings.tinytauk_profile)
             self.model_name = self.tts.config.model.model_id
@@ -161,7 +158,7 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
                     transcribe=engine_module.transcribe_chunk,
                 )
                 t_wer_check = time.perf_counter() - quality_start
-                wer_fallbacks += int(quality.fallback)
+                wer_fallbacks += int(quality.wer_fallback)
 
                 accept_early = quality_is_acceptable(
                     quality,
@@ -178,18 +175,17 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
             except ValueError:
                 pass
 
-            detail: AttemptTiming = {
-                "attempt": attempt,
-                "t_infer": t_infer,
-                "t_dsp": t_dsp,
-                "t_wer_check": t_wer_check,
-                "repeat_penalty": None,
-                "seed": seed,
-                "gen_seconds": duration,
-                "status": None,
-            }
-            detail.update(self._quality_timing_fields(quality))
-            attempt_details.append(detail)
+            attempt_details.append(AttemptTiming(
+                attempt=attempt,
+                t_infer=t_infer,
+                t_dsp=t_dsp,
+                t_wer_check=t_wer_check,
+                repeat_penalty=None,
+                seed=seed,
+                gen_seconds=duration,
+                status=None,
+                **(quality or QualityTiming()).model_dump(),
+            ))
 
             if accept_early:
                 break
@@ -206,22 +202,20 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
             if quality_is_acceptable(best_quality, self.settings.wer_threshold)
             else "fallback"
         )
-        for detail in attempt_details:
-            if detail["attempt"] == best_attempt:
-                detail["status"] = selected_status
+        attempt_details[best_attempt].status = selected_status
 
-        chunk_timing: ChunkTiming = {
-            "index": index,
-            "attempts": len(attempt_details),
-            "status": selected_status,
-            "duration": float(len(best_audio) / self.sample_rate),
-            "repeat_penalty": None,
-            "seed": best_seed,
-            "gen_seconds": best_duration,
-            "t_f0": 0.0,
-            "attempts_detail": attempt_details,
-        }
-        chunk_timing.update(best_quality.timing_fields())
+        chunk_timing = ChunkTiming(
+            index=index,
+            attempts=len(attempt_details),
+            status=selected_status,
+            duration=len(best_audio) / self.sample_rate,
+            repeat_penalty=None,
+            seed=best_seed,
+            gen_seconds=best_duration,
+            t_f0=0.0,
+            attempts_detail=attempt_details,
+            **best_quality.model_dump(),
+        )
         return best_audio, chunk_timing, wer_fallbacks
 
     def _duration_seconds(self, text: str, speed: float) -> float:

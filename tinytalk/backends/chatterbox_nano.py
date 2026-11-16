@@ -63,11 +63,11 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
             raise RuntimeError("engine not loaded. Call load() first")
         start = time.perf_counter()
         audio = self.tts.generate(chunk_text).detach().cpu().numpy().astype(np.float32).reshape(-1)
-        timing: ChunkTiming = {
-            "index": index,
-            "attempts": 1,
-            "duration": len(audio) / self.sample_rate,
-            "t_infer": time.perf_counter() - start,
-            "status": "accepted",
-        }
+        timing = ChunkTiming(
+            index=index,
+            attempts=1,
+            duration=len(audio) / self.sample_rate,
+            t_infer=time.perf_counter() - start,
+            status="accepted",
+        )
         return audio, timing, 0

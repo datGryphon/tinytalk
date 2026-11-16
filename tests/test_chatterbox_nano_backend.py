@@ -59,10 +59,10 @@ def test_native_output_and_timing(engine):
     np.testing.assert_allclose(result.audio, 0.1)
     assert result.audio.dtype == np.float32
     assert result.sample_rate == 24000
-    assert result.timing.chunks[0]["attempts"] == 1
-    assert "text" not in result.timing.chunks[0]
-    assert result.timing.chunks[0]["status"] == "accepted"
-    assert "t_infer" in result.timing.chunks[0]
+    assert result.timing.chunks[0].attempts == 1
+    assert "text" not in result.timing.chunks[0].model_dump()
+    assert result.timing.chunks[0].status == "accepted"
+    assert result.timing.chunks[0].t_infer is not None
     assert engine.backend.tts.generate_calls[0][0] == result.chunks[0]
     assert engine.backend.tts.generate_calls[0][1] == {}
 

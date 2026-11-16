@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import replace
 from pathlib import Path
-from typing import TypedDict
 
 from tinytalk.audio import to_wav_bytes
 from tinytalk.backends.tinytauk import TinyTAuKBackend
@@ -28,20 +26,20 @@ class ValidationRecord(QualityTiming):
     attempts: int
     status: AttemptStatus
     selected_seed: int | None
-    selected_gen_seconds: float
+    selected_gen_seconds: float | None
     attempts_detail: list[AttemptTiming]
     wav: str
 
 
 def _assert_live_quality(chunk: ChunkTiming, *, threshold: float) -> None:
-    assert chunk["wer_source"] == "whisper", chunk
-    assert chunk["wer_fallback"] is False, chunk
-    assert chunk["cer"] is not None, chunk
-    assert chunk["prompt_leak"] is False, chunk
-    assert chunk["wer"] is not None, chunk
-    assert chunk["wer"] <= threshold, chunk
-    assert chunk["cer"] <= threshold, chunk
-    assert chunk["status"] == "accepted", chunk
+    assert chunk.wer_source == "whisper", chunk
+    assert chunk.wer_fallback is False, chunk
+    assert chunk.cer is not None, chunk
+    assert chunk.prompt_leak is False, chunk
+    assert chunk.wer is not None, chunk
+    assert chunk.wer <= threshold, chunk
+    assert chunk.cer <= threshold, chunk
+    assert chunk.status == "accepted", chunk
 
 
 def _run_case(
@@ -52,11 +50,10 @@ def _run_case(
     threshold: float,
     force_all_retries: bool = False,
 ) -> ValidationRecord:
-    settings = replace(
-        engine.settings,
-        wer_threshold=-1.0 if force_all_retries else threshold,
-        max_retries=2,
-    )
+    settings = engine.settings.model_copy(update={
+        "wer_threshold": -1.0 if force_all_retries else threshold,
+        "max_retries": 2,
+    })
     assert isinstance(engine.backend, TinyTAuKBackend)
     backend = TinyTAuKBackend(settings)
     backend.tts = engine.backend.tts
@@ -68,20 +65,20 @@ def _run_case(
     assert result.timing is not None
     assert len(result.chunks) == 1
     chunk = result.timing.chunks[0]
-    details = chunk["attempts_detail"]
+    details = chunk.attempts_detail
 
     for detail in details:
-        assert detail["wer_source"] == "whisper", detail
-        assert detail["wer_fallback"] is False, detail
-        assert detail["cer"] is not None, detail
+        assert detail.wer_source == "whisper", detail
+        assert detail.wer_fallback is False, detail
+        assert detail.cer is not None, detail
 
     if force_all_retries:
         assert len(details) == 3, details
-        seeds = [detail["seed"] for detail in details]
+        seeds = [detail.seed for detail in details]
         assert len(set(seeds)) == 3, details
-        selected = [detail for detail in details if detail["status"] is not None]
+        selected = [detail for detail in details if detail.status is not None]
         assert len(selected) == 1, details
-        assert selected[0]["status"] == "fallback", details
+        assert selected[0].status == "fallback", details
     else:
         _assert_live_quality(chunk, threshold=threshold)
 
@@ -90,26 +87,19 @@ def _run_case(
     wav_path = out_dir / f"{name}.wav"
     wav_path.write_bytes(to_wav_bytes(result.audio, result.sample_rate))
 
-    record: ValidationRecord = {
-        "case": name,
-        "instructions": instructions,
-        "chunks": len(result.chunks),
-        "attempts": len(details),
-        "status": chunk["status"],
-        "selected_seed": chunk["seed"],
-        "selected_gen_seconds": chunk["gen_seconds"],
-        "wer": chunk["wer"],
-        "cer": chunk["cer"],
-        "substitutions": chunk["substitutions"],
-        "deletions": chunk["deletions"],
-        "insertions": chunk["insertions"],
-        "prompt_leak": chunk["prompt_leak"],
-        "wer_source": chunk["wer_source"],
-        "wer_fallback": chunk["wer_fallback"],
-        "attempts_detail": details,
-        "wav": str(wav_path),
-    }
-    print(json.dumps(record, indent=2))
+    record = ValidationRecord(
+        case=name,
+        instructions=instructions,
+        chunks=len(result.chunks),
+        attempts=len(details),
+        status=chunk.status,
+        selected_seed=chunk.seed,
+        selected_gen_seconds=chunk.gen_seconds,
+        **chunk.model_dump(include=set(QualityTiming.model_fields)),
+        attempts_detail=details,
+        wav=str(wav_path),
+    )
+    print(record.model_dump_json(exclude_unset=True, indent=2))
     return record
 
 
@@ -161,7 +151,7 @@ def main() -> None:
 
     out_dir = Path(os.environ.get("TINYTALK_QUALITY_ARTIFACTS", "test_artifacts/tinytauk-quality"))
     summary = out_dir / "results.json"
-    summary.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+    summary.write_text(json.dumps([record.model_dump(mode="json", exclude_unset=True) for record in records], indent=2) + "\n", encoding="utf-8")
 
     print("\nPASS: canonical prompting + live WER/CER + retry selection validated")
     print(f"Results: {summary}")

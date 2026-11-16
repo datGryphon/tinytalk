@@ -121,8 +121,8 @@ def _quality(
         deletions=deletions,
         insertions=insertions,
         prompt_leak=prompt_leak,
-        source=source,
-        fallback=fallback,
+        wer_source=source,
+        wer_fallback=fallback,
     )
 
 
@@ -322,12 +322,12 @@ def test_prompt_leak_rerolls_with_new_seed_and_same_horizon(monkeypatch):
     assert calls[1].gen_seconds == pytest.approx(2.0)
 
     chunk = result.timing.chunks[0]
-    assert chunk["attempts"] == 2
-    assert chunk["attempts_detail"][0]["prompt_leak"] is True
-    assert chunk["attempts_detail"][0]["status"] is None
-    assert chunk["attempts_detail"][1]["status"] == "accepted"
-    assert chunk["status"] == "accepted"
-    assert chunk["seed"] == 101
+    assert chunk.attempts == 2
+    assert chunk.attempts_detail[0].prompt_leak is True
+    assert chunk.attempts_detail[0].status is None
+    assert chunk.attempts_detail[1].status == "accepted"
+    assert chunk.status == "accepted"
+    assert chunk.seed == 101
 
 
 def test_non_leak_insertions_shrink_generation_horizon(monkeypatch):
@@ -389,10 +389,10 @@ def test_accepted_retry_wins_over_lower_ranked_failed_candidate(monkeypatch):
     result = engine.synthesize("x" * 28)
 
     chunk = result.timing.chunks[0]
-    assert chunk["status"] == "accepted"
-    assert chunk["seed"] == 101
-    assert chunk["wer"] == pytest.approx(0.1)
-    assert chunk["attempts_detail"][1]["status"] == "accepted"
+    assert chunk.status == "accepted"
+    assert chunk.seed == 101
+    assert chunk.wer == pytest.approx(0.1)
+    assert chunk.attempts_detail[1].status == "accepted"
 
 
 def test_exhausted_retries_keep_best_non_leaking_candidate(monkeypatch):
@@ -409,10 +409,10 @@ def test_exhausted_retries_keep_best_non_leaking_candidate(monkeypatch):
     result = engine.synthesize("x" * 28)
 
     chunk = result.timing.chunks[0]
-    selected = [detail for detail in chunk["attempts_detail"] if detail["status"] is not None]
+    selected = [detail for detail in chunk.attempts_detail if detail.status is not None]
     assert len(selected) == 1
-    assert selected[0]["attempt"] == 2
-    assert selected[0]["status"] == "fallback"
-    assert chunk["status"] == "fallback"
-    assert chunk["prompt_leak"] is False
-    assert chunk["wer"] == pytest.approx(0.3)
+    assert selected[0].attempt == 2
+    assert selected[0].status == "fallback"
+    assert chunk.status == "fallback"
+    assert chunk.prompt_leak is False
+    assert chunk.wer == pytest.approx(0.3)

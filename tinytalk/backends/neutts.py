@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
@@ -20,11 +19,10 @@ from ..audio import (
 from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
-from ..timing import AttemptStatus, AttemptTiming, ChunkTiming
+from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, QualityTiming
 from .neutts_audio import compute_f0_mean, normalize_f0
 
 
-@dataclass
 class NeuTTSRequest(SynthesisRequest):
     previous_f0_mean: float | None = None
 
@@ -123,8 +121,8 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
         if request.previous_f0_mean is not None:
             wav = normalize_f0(wav, self.sample_rate, request.previous_f0_mean)
         request.previous_f0_mean = compute_f0_mean(wav, self.sample_rate)
-        timing["t_f0"] = time.perf_counter() - f0_start
-        timing["duration"] = float(len(wav) / self.sample_rate)
+        timing.t_f0 = time.perf_counter() - f0_start
+        timing.duration = len(wav) / self.sample_rate
         return wav, timing, fallbacks
 
     @override
@@ -187,7 +185,7 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
                 quality_start = time.perf_counter()
                 quality = self._chunk_wer(wav, chunk_text)
                 t_wer_check = time.perf_counter() - quality_start
-                wer_fallbacks += int(quality.fallback)
+                wer_fallbacks += int(quality.wer_fallback)
 
                 accept_early = quality_is_acceptable(
                     quality,
@@ -203,16 +201,15 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
             except ValueError:
                 pass
 
-            detail: AttemptTiming = {
-                "attempt": attempt,
-                "t_infer": t_infer,
-                "t_dsp": t_dsp,
-                "t_wer_check": t_wer_check,
-                "repeat_penalty": rp,
-                "status": None,
-            }
-            detail.update(self._quality_timing_fields(quality))
-            attempt_details.append(detail)
+            attempt_details.append(AttemptTiming(
+                attempt=attempt,
+                t_infer=t_infer,
+                t_dsp=t_dsp,
+                t_wer_check=t_wer_check,
+                repeat_penalty=rp,
+                status=None,
+                **(quality or QualityTiming()).model_dump(),
+            ))
 
             if accept_early:
                 break
@@ -227,19 +224,17 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
             if quality_is_acceptable(best_quality, self.settings.wer_threshold)
             else "fallback"
         )
-        for detail in attempt_details:
-            if detail["attempt"] == best_attempt:
-                detail["status"] = selected_status
+        attempt_details[best_attempt].status = selected_status
 
-        chunk_timing: ChunkTiming = {
-            "index": index,
-            "attempts": len(attempt_details),
-            "status": selected_status,
-            "repeat_penalty": accepted_repeat_penalty,
-            "duration": len(best_audio) / self.sample_rate,
-            "attempts_detail": attempt_details,
-        }
-        chunk_timing.update(best_quality.timing_fields())
+        chunk_timing = ChunkTiming(
+            index=index,
+            attempts=len(attempt_details),
+            status=selected_status,
+            repeat_penalty=accepted_repeat_penalty,
+            duration=len(best_audio) / self.sample_rate,
+            attempts_detail=attempt_details,
+            **best_quality.model_dump(),
+        )
         return best_audio, chunk_timing, wer_fallbacks
 
     def _chunk_wer(self, wav: AudioSamples, chunk_text: str) -> QualityResult:

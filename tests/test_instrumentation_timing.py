@@ -1,5 +1,4 @@
 import time
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,8 +9,9 @@ from tinytalk.config import Settings
 from tinytalk.backends.neutts import NeuTTSBackend, NeuTTSRequest
 from tinytalk.engine import SpeechEngine
 from tinytalk.quality import QualityResult
+from tinytalk.timing import ChunkTiming
 
-_ACCEPTED_QUALITY = QualityResult(0.1, None, None, None, None, False, "confidence", False)
+_ACCEPTED_QUALITY = QualityResult(wer=0.1, wer_source="confidence")
 
 
 def _engine(*, max_retries: int = 0) -> SpeechEngine[NeuTTSRequest]:
@@ -56,10 +56,10 @@ def test_failed_infer_attempt_keeps_elapsed_inference_time():
         result = engine.synthesize("hello world")
 
     assert result.timing is not None
-    attempts = result.timing.chunks[0]["attempts_detail"]
+    attempts = result.timing.chunks[0].attempts_detail
     assert len(attempts) == 2
-    assert attempts[0]["wer"] is None
-    assert attempts[0]["t_infer"] >= 0.008
+    assert attempts[0].wer is None
+    assert attempts[0].t_infer >= 0.008
 
 
 def test_f0_timing_includes_pitch_analysis():
@@ -78,7 +78,7 @@ def test_f0_timing_includes_pitch_analysis():
         result = engine.synthesize("hello world")
 
     assert result.timing is not None
-    assert result.timing.chunks[0]["t_f0"] >= 0.008
+    assert result.timing.chunks[0].t_f0 >= 0.008
 
 
 def test_generation_settings_restore_even_when_request_fails():
@@ -96,12 +96,12 @@ def test_generation_settings_restore_even_when_request_fails():
 
 def test_f0_continuity_resets_between_requests():
     engine = _engine()
-    engine.backend.settings = replace(engine.settings, max_chars_per_chunk=5)
+    engine.backend.settings = engine.settings.model_copy(update={"max_chars_per_chunk": 5})
     audio = _audio()
 
     with (
         patch.object(engine.backend, "_synthesize_chunk", side_effect=lambda text, index, count: (
-            audio, {"index": index, "attempts": 1, "duration": 1.0, "status": "accepted"}, 0
+            audio, ChunkTiming(index=index, attempts=1, duration=1.0, status="accepted"), 0
         )),
         patch.object(engine.backend, "_apply_generation_settings"),
         patch("tinytalk.backends.neutts.compute_f0_mean", return_value=440.0),

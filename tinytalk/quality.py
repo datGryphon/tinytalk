@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 import time
 import unicodedata
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 from .audio import AudioArray, chunk_confidence, to_wav_bytes
 from .timing import QualitySource, QualityTiming
@@ -14,8 +14,9 @@ from .timing import QualitySource, QualityTiming
 _APOSTROPHES = frozenset({"'", "’", "ʼ", "＇"})
 
 
-@dataclass(frozen=True)
-class EditScore:
+class EditScore(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     substitutions: int
     deletions: int
     insertions: int
@@ -23,28 +24,17 @@ class EditScore:
     rate: float
 
 
-@dataclass(frozen=True)
-class QualityResult:
-    wer: float
-    cer: float | None
-    substitutions: int | None
-    deletions: int | None
-    insertions: int | None
-    prompt_leak: bool
-    source: QualitySource
-    fallback: bool
+class QualityResult(QualityTiming):
+    model_config = ConfigDict(frozen=True)
 
-    def timing_fields(self) -> QualityTiming:
-        return {
-            "wer": self.wer,
-            "cer": self.cer,
-            "substitutions": self.substitutions,
-            "deletions": self.deletions,
-            "insertions": self.insertions,
-            "prompt_leak": self.prompt_leak,
-            "wer_source": self.source,
-            "wer_fallback": self.fallback,
-        }
+    wer: float
+    wer_source: QualitySource
+
+
+class TranscriptionResponse(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    text: str
 
 
 def normalize_text(text: str) -> str:
@@ -188,8 +178,8 @@ def evaluate_transcript(
         deletions=wer_score.deletions,
         insertions=wer_score.insertions,
         prompt_leak=prompt_leak,
-        source=source,
-        fallback=fallback,
+        wer_source=source,
+        wer_fallback=fallback,
     )
 
 
@@ -206,8 +196,8 @@ def _confidence_quality(
         deletions=None,
         insertions=None,
         prompt_leak=False,
-        source="confidence",
-        fallback=fallback,
+        wer_source="confidence",
+        wer_fallback=fallback,
     )
 
 
@@ -248,7 +238,7 @@ def quality_rank(result: QualityResult) -> tuple[bool, bool, float, float]:
     """Stable best-candidate ordering without inventing a weighted score."""
     return (
         result.prompt_leak,
-        result.source != "whisper",
+        result.wer_source != "whisper",
         result.wer,
         result.cer if result.cer is not None else result.wer,
     )
@@ -279,7 +269,7 @@ def transcribe_chunk(wav_bytes: bytes, chunk_text: str, endpoint: str) -> str:
     for attempt in range(1, 4):
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
-                return json.loads(resp.read())["text"]
+                return TranscriptionResponse.model_validate_json(resp.read()).text
         except urllib.error.HTTPError as exc:
             if 500 <= exc.code < 600:
                 if attempt < 3:

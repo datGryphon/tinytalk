@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from tinytalk import server
 from tinytalk.config import Settings
-from tinytalk.engine import RequestTiming, SpeechEngine, SynthesisResult
+from tinytalk.engine import SpeechEngine, SynthesisResult
+from tinytalk.timing import AttemptTiming, ChunkTiming, RequestTiming
 
 if TYPE_CHECKING:
     from tinytalk.backends.neutts import NeuTTSRequest
@@ -86,72 +87,68 @@ def test_accepts_ignored_openai_fields_and_returns_wav(monkeypatch):
 
 
 def _make_timing() -> RequestTiming:
-    """A two-chunk timing payload with one accepted reroll and a fallback.
-
-    Chunks and attempts are plain dicts (matching what synthesize emits) so the
-    server path exercises the real JSON-serializable structure.
-    """
+    """A two-chunk timing payload with one accepted reroll and a fallback."""
     return RequestTiming(
         chunks=[
-            {
-                "index": 0,
-                "attempts": 1,
-                "duration": 1.0,
-                "status": "accepted",
-                "repeat_penalty": 1.0,
-                "wer": 0.1,
-                "wer_source": "whisper",
-                "wer_fallback": False,
-                "t_f0": 0.05,
-                "attempts_detail": [
-                    {
-                        "attempt": 0,
-                        "t_infer": 0.50,
-                        "t_dsp": 0.02,
-                        "t_wer_check": 0.01,
-                        "wer": 0.1,
-                        "wer_source": "whisper",
-                        "wer_fallback": False,
-                        "repeat_penalty": 1.0,
-                        "status": "accepted",
-                    },
+            ChunkTiming(
+                index=0,
+                attempts=1,
+                duration=1.0,
+                status="accepted",
+                repeat_penalty=1.0,
+                wer=0.1,
+                wer_source="whisper",
+                wer_fallback=False,
+                t_f0=0.05,
+                attempts_detail=[
+                    AttemptTiming(
+                        attempt=0,
+                        t_infer=0.50,
+                        t_dsp=0.02,
+                        t_wer_check=0.01,
+                        wer=0.1,
+                        wer_source="whisper",
+                        wer_fallback=False,
+                        repeat_penalty=1.0,
+                        status="accepted",
+                    ),
                 ],
-            },
-            {
-                "index": 1,
-                "attempts": 2,
-                "duration": 1.5,
-                "status": "fallback",
-                "repeat_penalty": 1.1,
-                "wer": 0.2,
-                "wer_source": "confidence",
-                "wer_fallback": True,
-                "t_f0": 0.06,
-                "attempts_detail": [
-                    {
-                        "attempt": 0,
-                        "t_infer": 0.60,
-                        "t_dsp": 0.03,
-                        "t_wer_check": 0.02,
-                        "wer": 0.5,
-                        "wer_source": "whisper",
-                        "wer_fallback": False,
-                        "repeat_penalty": 1.0,
-                        "status": None,
-                    },
-                    {
-                        "attempt": 1,
-                        "t_infer": 0.70,
-                        "t_dsp": 0.03,
-                        "t_wer_check": 0.02,
-                        "wer": 0.2,
-                        "wer_source": "confidence",
-                        "wer_fallback": True,
-                        "repeat_penalty": 1.1,
-                        "status": "fallback",
-                    },
+            ),
+            ChunkTiming(
+                index=1,
+                attempts=2,
+                duration=1.5,
+                status="fallback",
+                repeat_penalty=1.1,
+                wer=0.2,
+                wer_source="confidence",
+                wer_fallback=True,
+                t_f0=0.06,
+                attempts_detail=[
+                    AttemptTiming(
+                        attempt=0,
+                        t_infer=0.60,
+                        t_dsp=0.03,
+                        t_wer_check=0.02,
+                        wer=0.5,
+                        wer_source="whisper",
+                        wer_fallback=False,
+                        repeat_penalty=1.0,
+                        status=None,
+                    ),
+                    AttemptTiming(
+                        attempt=1,
+                        t_infer=0.70,
+                        t_dsp=0.03,
+                        t_wer_check=0.02,
+                        wer=0.2,
+                        wer_source="confidence",
+                        wer_fallback=True,
+                        repeat_penalty=1.1,
+                        status="fallback",
+                    ),
                 ],
-            },
+            ),
         ],
         wer_fallbacks=1,
     )

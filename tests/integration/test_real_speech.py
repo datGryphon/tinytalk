@@ -63,6 +63,6 @@ def test_real_speech_outputs_wavs(monkeypatch):
             quality_result = engine.synthesize("The system is operating normally.")
             assert quality_result.timing is not None
             for chunk in quality_result.timing.chunks:
-                assert chunk["wer_source"] == "whisper", chunk
-                assert chunk["wer_fallback"] is False, chunk
-                assert chunk["cer"] is not None, chunk
+                assert chunk.wer_source == "whisper", chunk
+                assert chunk.wer_fallback is False, chunk
+                assert chunk.cer is not None, chunk
