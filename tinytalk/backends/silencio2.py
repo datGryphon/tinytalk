@@ -147,7 +147,6 @@ class Silencio2Engine:
 
         timing = {
             "index": index,
-            "text": chunk_text,
             "attempts": 1,
             "duration": float(len(audio) / self.sample_rate),
             "t_infer": t_infer,

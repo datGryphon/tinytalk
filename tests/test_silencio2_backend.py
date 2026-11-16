@@ -57,6 +57,7 @@ def test_native_output_and_timing(engine):
     assert result.audio.dtype == np.float32
     assert result.sample_rate == 24000
     assert result.timing.chunks[0]["attempts"] == 1
+    assert "text" not in result.timing.chunks[0]
     assert engine.tts.calls[0][1] == {"voice": "260", "normalize": False}
 
 

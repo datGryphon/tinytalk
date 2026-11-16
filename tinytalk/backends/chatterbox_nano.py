@@ -52,7 +52,7 @@ class ChatterboxNanoEngine:
         start = time.perf_counter()
         audio = self.tts.generate(text).detach().cpu().numpy().astype(np.float32).reshape(-1)
         return audio, {
-            "index": index, "text": text, "attempts": 1,
+            "index": index, "attempts": 1,
             "duration": len(audio) / self.sample_rate,
             "t_infer": time.perf_counter() - start, "status": "accepted",
         }, 0
