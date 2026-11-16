@@ -68,6 +68,10 @@ feature flags unrelated to real backend differences.
 - `server.py` owns request validation and the process-level async inference lock.
   All backend engines inherit `SpeechEngine` and implement `load()` and
   `synthesize()`; the base class owns common state.
+  Declare instance attributes with explicit types at class scope and initialize
+  them in `__init__`. Declare shared state on the base class, and model-specific
+  state on the concrete backend using the upstream types. Mark interface
+  overrides with `@override`.
 - Long input chunking stays in `chunking.py`; backend implementations should not
   invent competing chunkers.
 - Use `SpeechEngine._synthesize_chunks()` for chunk iteration, silence insertion, audio

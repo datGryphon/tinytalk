@@ -9,14 +9,16 @@ import numpy as np
 
 from .audio import silence
 from .config import Backend, Settings
-from .quality import transcribe_chunk
+from .quality import QualityResult, transcribe_chunk
+
+type ChunkResult = tuple[np.ndarray, dict[str, object], int]
 
 
 @dataclass(frozen=True)
 class RequestTiming:
     """Backend timing payload for one synthesis request."""
 
-    chunks: list[dict]
+    chunks: list[dict[str, object]]
     wer_fallbacks: int = 0
 
 
@@ -29,6 +31,11 @@ class SynthesisResult:
 
 
 class SpeechEngine(ABC):
+    settings: Settings
+    model_name: str
+    sample_rate: int
+    loaded: bool
+
     def __init__(self, settings: Settings, model_name: str) -> None:
         self.settings = settings
         self.model_name = model_name
@@ -50,11 +57,11 @@ class SpeechEngine(ABC):
     def _synthesize_chunks(
         self,
         chunks: list[str],
-        synthesize_chunk: Callable[[str, int, int], tuple[np.ndarray, dict, int]],
+        synthesize_chunk: Callable[[str, int, int], ChunkResult],
     ) -> SynthesisResult:
         """Synthesize pre-split chunks and assemble native audio and request timings."""
         parts: list[np.ndarray] = []
-        chunk_timings: list[dict] = []
+        chunk_timings: list[dict[str, object]] = []
         wer_fallbacks = 0
         silence_ms = self.settings.inter_chunk_silence_ms
 
@@ -72,6 +79,21 @@ class SpeechEngine(ABC):
             chunks=chunks,
             timing=RequestTiming(chunks=chunk_timings, wer_fallbacks=wer_fallbacks),
         )
+
+    @staticmethod
+    def _quality_timing_fields(quality: QualityResult | None) -> dict[str, object]:
+        if quality is None:
+            return {
+                "wer": None,
+                "cer": None,
+                "substitutions": None,
+                "deletions": None,
+                "insertions": None,
+                "prompt_leak": False,
+                "wer_source": None,
+                "wer_fallback": False,
+            }
+        return quality.timing_fields()
 
 
 _BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {

@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
@@ -115,7 +115,7 @@ async def create_speech(payload: SpeechRequest) -> Response:
     timing = result.timing
     chunk_count = len(result.chunks)
     audio_seconds = len(result.audio) / result.sample_rate
-    total_attempts = sum(chunk["attempts"] for chunk in timing.chunks) if timing else 0
+    total_attempts = sum(cast(int, chunk["attempts"]) for chunk in timing.chunks) if timing else 0
     wer_fallbacks = timing.wer_fallbacks if timing else 0
     rtf = total_seconds / audio_seconds if audio_seconds > 0 else 0.0
 

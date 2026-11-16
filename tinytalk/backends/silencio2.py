@@ -4,14 +4,18 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from types import ModuleType
+from typing import TYPE_CHECKING, override
 
 import numpy as np
 from huggingface_hub import snapshot_download
 
 from ..chunking import split_tagged_text
 from ..config import Settings
-from ..engine import SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechEngine, SynthesisResult
+
+if TYPE_CHECKING:
+    from silencio2 import Silencio2TTS
 
 _REPO_ID = "BlueRoseLabs/Silencio-2"
 _REVISION = "20930f5f6a6bb564f2a8207152fd5c5d8eecff03"
@@ -20,7 +24,7 @@ _TAGS_RE = re.compile(r"\[[^\]]*\]|<[^>]*>")
 _EMOTION_RE = re.compile(r"<([^\s<>]+)>")
 
 
-def _assert_snapshot_owned(silencio2_module: Any, snapshot_path: Path) -> None:
+def _assert_snapshot_owned(silencio2_module: ModuleType, snapshot_path: Path) -> None:
     filename = getattr(silencio2_module, "__file__", None)
     if not filename:
         raise RuntimeError("silencio2 has no verifiable snapshot origin")
@@ -35,7 +39,7 @@ def _assert_snapshot_owned(silencio2_module: Any, snapshot_path: Path) -> None:
 
 
 class Silencio2Engine(SpeechEngine):
-    tts: Any | None
+    tts: Silencio2TTS | None
     _emotions: tuple[str, ...]
     _sounds: tuple[str, ...]
 
@@ -45,6 +49,7 @@ class Silencio2Engine(SpeechEngine):
         self._emotions = ()
         self._sounds = ()
 
+    @override
     def load(self) -> None:
         if self.loaded:
             return
@@ -68,6 +73,7 @@ class Silencio2Engine(SpeechEngine):
         self.tts.voice(self.settings.silencio2_voice)
         self.loaded = True
 
+    @override
     def synthesize(
         self,
         text: str,
@@ -75,7 +81,7 @@ class Silencio2Engine(SpeechEngine):
         instructions: str | None = None,
         speed: float | None = None,
     ) -> SynthesisResult:
-        if not self.loaded:
+        if not self.loaded or self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
         if not text or not text.strip():
             raise ValueError("cannot synthesize empty text")
@@ -119,8 +125,8 @@ class Silencio2Engine(SpeechEngine):
         chunk_text: str,
         index: int,
         num_chunks: int,
-    ) -> tuple[np.ndarray, dict, int]:
-        if not self.loaded:
+    ) -> ChunkResult:
+        if not self.loaded or self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
         start = time.perf_counter()
@@ -133,7 +139,7 @@ class Silencio2Engine(SpeechEngine):
         if audio.ndim != 1:
             audio = audio.reshape(-1)
 
-        timing = {
+        timing: dict[str, object] = {
             "index": index,
             "attempts": 1,
             "duration": float(len(audio) / self.sample_rate),

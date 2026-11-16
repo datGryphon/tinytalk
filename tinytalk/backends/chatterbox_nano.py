@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import time
+from typing import override
 
 import numpy as np
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
 from ..chunking import split_tagged_text
 from ..config import Settings
-from ..engine import SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechEngine, SynthesisResult
 
 
 class ChatterboxNanoEngine(SpeechEngine):
+    tts: ChatterboxTurboTTS | None
+
     def __init__(self, settings: Settings) -> None:
         super().__init__(settings, "ResembleAI/chatterbox-nano")
         self.tts = None
 
+    @override
     def load(self) -> None:
         if self.loaded:
             return
@@ -29,8 +33,13 @@ class ChatterboxNanoEngine(SpeechEngine):
         self.sample_rate = int(model.sr)
         self.loaded = True
 
+    @override
     def synthesize(
-        self, text: str, *, instructions: str | None = None, speed: float | None = None
+        self,
+        text: str,
+        *,
+        instructions: str | None = None,
+        speed: float | None = None,
     ) -> SynthesisResult:
         if not self.loaded:
             raise RuntimeError("engine not loaded. Call load() first")
@@ -41,13 +50,23 @@ class ChatterboxNanoEngine(SpeechEngine):
         if not text.strip():
             raise ValueError("cannot synthesize empty text")
         chunks = split_tagged_text(text, self.settings.max_chars_per_chunk)
-        return self._synthesize_chunks(chunks, self._chunk)
+        return self._synthesize_chunks(chunks, self._synthesize_chunk)
 
-    def _chunk(self, text: str, index: int, count: int) -> tuple[np.ndarray, dict, int]:
+    def _synthesize_chunk(
+        self,
+        chunk_text: str,
+        index: int,
+        num_chunks: int,
+    ) -> ChunkResult:
+        if self.tts is None:
+            raise RuntimeError("engine not loaded. Call load() first")
         start = time.perf_counter()
-        audio = self.tts.generate(text).detach().cpu().numpy().astype(np.float32).reshape(-1)
-        return audio, {
-            "index": index, "attempts": 1,
+        audio = self.tts.generate(chunk_text).detach().cpu().numpy().astype(np.float32).reshape(-1)
+        timing: dict[str, object] = {
+            "index": index,
+            "attempts": 1,
             "duration": len(audio) / self.sample_rate,
-            "t_infer": time.perf_counter() - start, "status": "accepted",
-        }, 0
+            "t_infer": time.perf_counter() - start,
+            "status": "accepted",
+        }
+        return audio, timing, 0

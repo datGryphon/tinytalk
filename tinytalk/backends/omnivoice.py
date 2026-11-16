@@ -3,17 +3,17 @@ from __future__ import annotations
 import time
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import override
 
 import numpy as np
 import torch
-from omnivoice.models.omnivoice import OmniVoice
+from omnivoice.models.omnivoice import OmniVoice, VoiceClonePrompt
 
 from .. import engine as engine_module
 from ..audio import edge_fade, peak_limit, trim_edge_silence
 from ..chunking import split_text
 from ..config import Settings
-from ..engine import SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechEngine, SynthesisResult
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 
 _RETRY_CLASS_TEMPERATURE_STEP = 0.2
@@ -22,13 +22,14 @@ _MAX_RETRY_CLASS_TEMPERATURE = 1.0
 
 class OmniVoiceEngine(SpeechEngine):
     tts: OmniVoice | None
-    voice_clone_prompt: Any | None
+    voice_clone_prompt: VoiceClonePrompt | None
 
     def __init__(self, settings: Settings) -> None:
         super().__init__(settings, settings.omnivoice_model)
         self.tts = None
         self.voice_clone_prompt = None
 
+    @override
     def load(self) -> None:
         self._validate_reference_config()
         device = self.settings.omnivoice_device.strip() or "cpu"
@@ -52,6 +53,7 @@ class OmniVoiceEngine(SpeechEngine):
 
         self.loaded = True
 
+    @override
     def synthesize(
         self,
         text: str,
@@ -86,7 +88,7 @@ class OmniVoiceEngine(SpeechEngine):
         instructions: str | None,
         speed: float | None,
         language: str | None,
-    ) -> tuple[np.ndarray, dict, int]:
+    ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
@@ -97,7 +99,7 @@ class OmniVoiceEngine(SpeechEngine):
         best_attempt = -1
         best_temperature = 0.0
         wer_fallbacks = 0
-        attempt_details: list[dict] = []
+        attempt_details: list[dict[str, object]] = []
 
         for attempt in range(num_attempts):
             temperature = min(
@@ -158,7 +160,7 @@ class OmniVoiceEngine(SpeechEngine):
         speed: float | None,
         language: str | None,
         temperature: float,
-    ) -> tuple[np.ndarray, QualityResult, dict]:
+    ) -> tuple[np.ndarray, QualityResult, dict[str, object]]:
         raw_audio, t_infer = self._generate_audio(
             chunk_text,
             mode=mode,
@@ -179,7 +181,7 @@ class OmniVoiceEngine(SpeechEngine):
             instructions=instructions,
         )
 
-        detail = {
+        detail: dict[str, object] = {
             "attempt": attempt,
             "t_infer": t_infer,
             "t_dsp": t_dsp,
@@ -271,8 +273,8 @@ class OmniVoiceEngine(SpeechEngine):
         quality: QualityResult,
         temperature: float,
         selected_attempt: int,
-        details: list[dict],
-    ) -> dict:
+        details: list[dict[str, object]],
+    ) -> dict[str, object]:
         status = (
             "accepted"
             if quality_is_acceptable(quality, self.settings.wer_threshold)
@@ -280,7 +282,7 @@ class OmniVoiceEngine(SpeechEngine):
         )
         details[selected_attempt]["status"] = status
 
-        timing = {
+        timing: dict[str, object] = {
             "index": index,
             "attempts": len(details),
             "status": status,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import override
 
 import numpy as np
 import torch
@@ -16,7 +17,7 @@ from ..audio import (
 )
 from ..chunking import split_text
 from ..config import Settings
-from ..engine import SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechEngine, SynthesisResult
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from .neutts_audio import compute_f0_mean, normalize_f0
 
@@ -32,6 +33,7 @@ class NeuTTSEngine(SpeechEngine):
         self.ref_codes = None
         self.ref_text = None
 
+    @override
     def load(self) -> None:
         self._validate_reference_files()
 
@@ -90,6 +92,7 @@ class NeuTTSEngine(SpeechEngine):
 
         backbone.create_completion = create_completion
 
+    @override
     def synthesize(
         self,
         text: str,
@@ -105,7 +108,7 @@ class NeuTTSEngine(SpeechEngine):
         chunks = split_text(text, self.settings.max_chars_per_chunk)
         prev_f0_mean: float | None = None
 
-        def synthesize_chunk(chunk: str, index: int, num_chunks: int):
+        def synthesize_chunk(chunk: str, index: int, num_chunks: int) -> ChunkResult:
             nonlocal prev_f0_mean
             wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
                 chunk, index, num_chunks
@@ -129,14 +132,14 @@ class NeuTTSEngine(SpeechEngine):
         chunk_text: str,
         index: int,
         num_chunks: int,
-    ) -> tuple[np.ndarray, dict, int]:
+    ) -> ChunkResult:
         best_audio: np.ndarray | None = None
         best_quality: QualityResult | None = None
         best_rank: tuple[bool, bool, float, float] | None = None
         best_attempt = -1
         accepted_repeat_penalty = self.settings.repeat_penalty
         wer_fallbacks = 0
-        attempt_details: list[dict] = []
+        attempt_details: list[dict[str, object]] = []
 
         num_attempts = self.settings.max_retries + 1
         for attempt in range(num_attempts):
@@ -192,7 +195,7 @@ class NeuTTSEngine(SpeechEngine):
             except ValueError:
                 pass
 
-            detail = {
+            detail: dict[str, object] = {
                 "attempt": attempt,
                 "t_infer": t_infer,
                 "t_dsp": t_dsp,
@@ -220,7 +223,7 @@ class NeuTTSEngine(SpeechEngine):
             if detail["attempt"] == best_attempt:
                 detail["status"] = selected_status
 
-        chunk_timing = {
+        chunk_timing: dict[str, object] = {
             "index": index,
             "attempts": len(attempt_details),
             "status": selected_status,
@@ -249,7 +252,7 @@ class NeuTTSEngine(SpeechEngine):
             fallback=bool(fallback),
         )
 
-    def _chunk_wer(self, wav: np.ndarray, chunk_text: str):
+    def _chunk_wer(self, wav: np.ndarray, chunk_text: str) -> QualityResult | tuple[float, str, bool]:
         return evaluate_audio(
             wav,
             self.sample_rate,
@@ -257,21 +260,6 @@ class NeuTTSEngine(SpeechEngine):
             endpoint=self.settings.wer_endpoint,
             transcribe=engine_module.transcribe_chunk,
         )
-
-    @staticmethod
-    def _quality_timing_fields(quality: QualityResult | None) -> dict[str, object]:
-        if quality is None:
-            return {
-                "wer": None,
-                "cer": None,
-                "substitutions": None,
-                "deletions": None,
-                "insertions": None,
-                "prompt_leak": False,
-                "wer_source": None,
-                "wer_fallback": False,
-            }
-        return quality.timing_fields()
 
     def _validate_reference_files(self) -> None:
         for path_name, path in (

@@ -2,20 +2,54 @@ import numpy as np
 import pytest
 
 from tinytalk.config import Settings
-from tinytalk.engine import SpeechEngine
+from tinytalk.engine import SpeechEngine, SynthesisResult
+from tinytalk.quality import QualityResult
 
 
 class StubEngine(SpeechEngine):
-    def load(self):
+    def load(self) -> None:
         self.loaded = True
 
-    def synthesize(self, text, *, instructions=None, speed=None):
+    def synthesize(
+        self,
+        text: str,
+        *,
+        instructions: str | None = None,
+        speed: float | None = None,
+    ) -> SynthesisResult:
         raise NotImplementedError
 
 
 def test_base_is_abstract():
     with pytest.raises(TypeError):
         SpeechEngine(Settings(), "test")
+
+
+def test_base_declares_and_initializes_shared_state():
+    settings = Settings()
+    engine = StubEngine(settings, "test")
+    assert vars(engine) == {
+        "settings": settings,
+        "model_name": "test",
+        "sample_rate": 24_000,
+        "loaded": False,
+    }
+    assert SpeechEngine.__annotations__.keys() >= vars(engine).keys()
+
+
+def test_shared_quality_timing_fields():
+    quality = QualityResult(0.1, None, None, None, None, False, "confidence", False)
+    assert SpeechEngine._quality_timing_fields(quality) == quality.timing_fields()
+    assert SpeechEngine._quality_timing_fields(None) == {
+        "wer": None,
+        "cer": None,
+        "substitutions": None,
+        "deletions": None,
+        "insertions": None,
+        "prompt_leak": False,
+        "wer_source": None,
+        "wer_fallback": False,
+    }
 
 
 @pytest.mark.parametrize("silence_ms", [0, 2])

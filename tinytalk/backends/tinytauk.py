@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from functools import partial
+from typing import override
 
 import numpy as np
 from tinytauk import TinyTAuK
@@ -11,7 +12,7 @@ from .. import engine as engine_module
 from ..audio import edge_fade, peak_limit, trim_edge_silence
 from ..chunking import split_text
 from ..config import Settings
-from ..engine import SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechEngine, SynthesisResult
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
@@ -34,6 +35,7 @@ class TinyTAuKEngine(SpeechEngine):
         super().__init__(settings, settings.tinytauk_model)
         self.tts = None
 
+    @override
     def load(self) -> None:
         if self.settings.tinytauk_chars_per_second <= 0:
             raise ValueError("TINYTALK_TINYTAUK_CHARS_PER_SECOND must be positive")
@@ -57,6 +59,7 @@ class TinyTAuKEngine(SpeechEngine):
         self.sample_rate = int(warmup.sample_rate)
         self.loaded = True
 
+    @override
     def synthesize(
         self,
         text: str,
@@ -89,7 +92,7 @@ class TinyTAuKEngine(SpeechEngine):
         *,
         instructions: str | None,
         speed: float,
-    ) -> tuple[np.ndarray, dict, int]:
+    ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
@@ -113,7 +116,7 @@ class TinyTAuKEngine(SpeechEngine):
         best_seed: int | None = None
         best_duration = duration
         wer_fallbacks = 0
-        attempt_details: list[dict] = []
+        attempt_details: list[dict[str, object]] = []
 
         for attempt in range(num_attempts):
             seed = self._attempt_seed(base_seed, index, attempt, num_attempts)
@@ -187,7 +190,7 @@ class TinyTAuKEngine(SpeechEngine):
             except ValueError:
                 pass
 
-            detail = {
+            detail: dict[str, object] = {
                 "attempt": attempt,
                 "t_infer": t_infer,
                 "t_dsp": t_dsp,
@@ -219,7 +222,7 @@ class TinyTAuKEngine(SpeechEngine):
             if detail["attempt"] == best_attempt:
                 detail["status"] = selected_status
 
-        chunk_timing = {
+        chunk_timing: dict[str, object] = {
             "index": index,
             "attempts": len(attempt_details),
             "status": selected_status,
@@ -287,18 +290,3 @@ class TinyTAuKEngine(SpeechEngine):
             f"Based on the following description: {quoted_description}, "
             f"generate speech content {quoted_text}."
         )
-
-    @staticmethod
-    def _quality_timing_fields(quality: QualityResult | None) -> dict[str, object]:
-        if quality is None:
-            return {
-                "wer": None,
-                "cer": None,
-                "substitutions": None,
-                "deletions": None,
-                "insertions": None,
-                "prompt_leak": False,
-                "wer_source": None,
-                "wer_fallback": False,
-            }
-        return quality.timing_fields()
