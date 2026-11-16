@@ -12,12 +12,11 @@ from ..audio import (
     edge_fade,
     loudness_normalize,
     peak_limit,
-    silence,
     trim_edge_silence,
 )
 from ..chunking import split_text
 from ..config import Settings
-from ..engine import RequestTiming, SynthesisResult
+from ..engine import SynthesisResult, synthesize_chunks
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from .neutts_audio import compute_f0_mean, normalize_f0
 
@@ -111,44 +110,27 @@ class NeuTTSEngine:
             raise RuntimeError("engine not loaded. Call load() first")
 
         chunks = split_text(text, self.settings.max_chars_per_chunk)
-        parts: list[np.ndarray] = []
-        chunk_timings: list[dict] = []
         prev_f0_mean: float | None = None
-        wer_fallbacks = 0
+
+        def synthesize_chunk(chunk: str, index: int, num_chunks: int):
+            nonlocal prev_f0_mean
+            wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
+                chunk, index, num_chunks
+            )
+            f0_start = time.perf_counter()
+            if prev_f0_mean is not None:
+                wav = normalize_f0(wav, self.sample_rate, prev_f0_mean)
+            prev_f0_mean = compute_f0_mean(wav, self.sample_rate)
+            chunk_timing["t_f0"] = time.perf_counter() - f0_start
+            chunk_timing["duration"] = float(len(wav) / self.sample_rate)
+            return wav, chunk_timing, chunk_fallbacks
 
         try:
-            for index, chunk in enumerate(chunks):
-                wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
-                    chunk, index, len(chunks)
-                )
-                wer_fallbacks += chunk_fallbacks
-
-                f0_start = time.perf_counter()
-                if prev_f0_mean is not None:
-                    wav = normalize_f0(wav, self.sample_rate, prev_f0_mean)
-                prev_f0_mean = compute_f0_mean(wav, self.sample_rate)
-                chunk_timing["t_f0"] = time.perf_counter() - f0_start
-                chunk_timing["duration"] = float(len(wav) / self.sample_rate)
-
-                if index > 0 and self.settings.inter_chunk_silence_ms > 0:
-                    parts.append(
-                        silence(
-                            self.sample_rate,
-                            self.settings.inter_chunk_silence_ms,
-                            wav.dtype,
-                        )
-                    )
-                parts.append(wav)
-                chunk_timings.append(chunk_timing)
-
-            return SynthesisResult(
-                audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
-                sample_rate=self.sample_rate,
-                chunks=chunks,
-                timing=RequestTiming(
-                    chunks=chunk_timings,
-                    wer_fallbacks=wer_fallbacks,
-                ),
+            return synthesize_chunks(
+                chunks,
+                self.sample_rate,
+                self.settings.inter_chunk_silence_ms,
+                synthesize_chunk,
             )
         finally:
             # Rerolls temporarily override the persistent GGUF backbone.

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Protocol
 
 import numpy as np
 
+from .audio import silence
 from .config import Backend, Settings
 from .quality import transcribe_chunk
 
@@ -24,6 +26,33 @@ class SynthesisResult:
     sample_rate: int
     chunks: list[str]
     timing: RequestTiming | None = None
+
+
+def synthesize_chunks(
+    chunks: list[str],
+    sample_rate: int,
+    inter_chunk_silence_ms: int,
+    synthesize_chunk: Callable[[str, int, int], tuple[np.ndarray, dict, int]],
+) -> SynthesisResult:
+    """Synthesize pre-split chunks and assemble native audio and request timings."""
+    parts: list[np.ndarray] = []
+    chunk_timings: list[dict] = []
+    wer_fallbacks = 0
+
+    for index, chunk in enumerate(chunks):
+        wav, chunk_timing, chunk_fallbacks = synthesize_chunk(chunk, index, len(chunks))
+        wer_fallbacks += chunk_fallbacks
+        if index > 0 and inter_chunk_silence_ms > 0:
+            parts.append(silence(sample_rate, inter_chunk_silence_ms, wav.dtype))
+        parts.append(wav)
+        chunk_timings.append(chunk_timing)
+
+    return SynthesisResult(
+        audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
+        sample_rate=sample_rate,
+        chunks=chunks,
+        timing=RequestTiming(chunks=chunk_timings, wer_fallbacks=wer_fallbacks),
+    )
 
 
 class SpeechEngine(Protocol):

@@ -65,6 +65,8 @@ feature flags unrelated to real backend differences.
   Backend engines expose `load()`, `synthesize()`, `loaded`, and `model_name`.
 - Long input chunking stays in `chunking.py`; backend implementations should not
   invent competing chunkers.
+- Use `engine.synthesize_chunks()` for chunk iteration, silence insertion, audio
+  assembly and request timing. Backends retain control over chunk generation.
 - Shared correctness evaluation stays in `quality.py`. Backend-specific retry
   policy stays with each backend because their controls and failure modes differ.
 - Audio stays float `[-1, 1]` through the pipeline until final WAV/codec encoding.

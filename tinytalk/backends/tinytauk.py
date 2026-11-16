@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import json
 import time
+from functools import partial
 
 import numpy as np
 from tinytauk import TinyTAuK
 
 from .. import engine as engine_module
-from ..audio import edge_fade, peak_limit, silence, trim_edge_silence
+from ..audio import edge_fade, peak_limit, trim_edge_silence
 from ..chunking import split_text
 from ..config import Settings
-from ..engine import RequestTiming, SynthesisResult
+from ..engine import SynthesisResult, synthesize_chunks
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
@@ -78,47 +79,23 @@ class TinyTAuKEngine:
             raise ValueError("speed must be positive")
 
         chunks = split_text(text, self.settings.max_chars_per_chunk)
-        parts: list[np.ndarray] = []
-        chunk_timings: list[dict] = []
-        wer_fallbacks = 0
-
-        for index, chunk in enumerate(chunks):
-            wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
-                chunk,
-                index=index,
-                num_chunks=len(chunks),
+        return synthesize_chunks(
+            chunks,
+            self.sample_rate,
+            self.settings.inter_chunk_silence_ms,
+            partial(
+                self._synthesize_chunk,
                 instructions=instructions,
                 speed=speed_value,
-            )
-            wer_fallbacks += chunk_fallbacks
-
-            if index > 0 and self.settings.inter_chunk_silence_ms > 0:
-                parts.append(
-                    silence(
-                        self.sample_rate,
-                        self.settings.inter_chunk_silence_ms,
-                        wav.dtype,
-                    )
-                )
-            parts.append(wav)
-            chunk_timings.append(chunk_timing)
-
-        return SynthesisResult(
-            audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
-            sample_rate=self.sample_rate,
-            chunks=chunks,
-            timing=RequestTiming(
-                chunks=chunk_timings,
-                wer_fallbacks=wer_fallbacks,
             ),
         )
 
     def _synthesize_chunk(
         self,
         chunk_text: str,
-        *,
         index: int,
         num_chunks: int,
+        *,
         instructions: str | None,
         speed: float,
     ) -> tuple[np.ndarray, dict, int]:
