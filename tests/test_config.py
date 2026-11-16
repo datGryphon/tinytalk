@@ -5,6 +5,14 @@ import pytest
 from tinytalk.config import load_settings
 
 
+def test_loads_silencio2_backend(monkeypatch):
+    monkeypatch.setenv("TINYTALK_BACKEND", "silencio2")
+    monkeypatch.setenv("TINYTALK_SILENCIO2_VOICE", "/local/reference.wav")
+    settings = load_settings()
+    assert settings.backend == "silencio2"
+    assert settings.silencio2_voice == "/local/reference.wav"
+
+
 def test_loads_tinytauk_backend(monkeypatch):
     monkeypatch.setenv("TINYTALK_BACKEND", "tinytauk")
     monkeypatch.setenv("TINYTALK_TINYTAUK_CHARS_PER_SECOND", "12.5")

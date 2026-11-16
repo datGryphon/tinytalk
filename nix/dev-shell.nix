@@ -37,6 +37,11 @@ in
   default = neutts;
   inherit neutts;
 
+  silencio2 = mkBackendShell {
+    backend = "silencio2";
+    venv = ".venv-silencio2";
+  };
+
   omnivoice = mkBackendShell {
     backend = "omnivoice";
     venv = ".venv-omnivoice";

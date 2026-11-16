@@ -10,7 +10,7 @@ let
     enable = lib.mkEnableOption "OpenAI-compatible tinytalk TTS server";
 
     backend = lib.mkOption {
-      type = lib.types.enum [ "neutts" "tinytauk" "omnivoice" ];
+      type = lib.types.enum [ "neutts" "tinytauk" "omnivoice" "silencio2" ];
       default = "neutts";
       description = "Synthesis backend for this service instance.";
     };
@@ -200,6 +200,14 @@ let
     };
   };
 
+  silencio2Options = {
+    silencio2Voice = lib.mkOption {
+      type = lib.types.str;
+      default = "260";
+      description = "Silencio-2 bundled voice ID or local reference-audio path, cached at startup.";
+    };
+  };
+
   commonEnvironment = {
     TINYTALK_BACKEND = cfg.backend;
     TINYTALK_HOST = cfg.host;
@@ -248,7 +256,8 @@ let
   };
 
   backendEnvironment =
-    if cfg.backend == "tinytauk" then tinytaukEnvironment
+    if cfg.backend == "silencio2" then { TINYTALK_SILENCIO2_VOICE = cfg.silencio2Voice; }
+    else if cfg.backend == "tinytauk" then tinytaukEnvironment
     else if cfg.backend == "omnivoice" then omnivoiceEnvironment
     else neuttsEnvironment;
 
@@ -332,6 +341,7 @@ in
     // neuttsOptions
     // tinytaukOptions
     // omnivoiceOptions
+    // silencio2Options
     // runtimeOptions;
 
   config = lib.mkIf cfg.enable {

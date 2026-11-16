@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.13.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -1574,6 +1574,19 @@ wheels = [
 ]
 
 [[package]]
+name = "sentencepiece"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/83/0664683546ffca8e36653d39d6217c361d931953f40ce28210b56927a9b6/sentencepiece-0.2.3.tar.gz", hash = "sha256:21618ad31f0453a1ebf5ec58defed99758d54af0b670546ecac639ddd8b86fbd", size = 3751846, upload-time = "2026-11-05T05:38:22.108Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4e/86/7ccc32fa2059e6d9217e31fe6d502dcb24a5760013f850292f59b85dc115/sentencepiece-0.2.3-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:80fe42d6ecd3860ee43327de31687f222af8e93f7d66e248d241cf9a0466eb73", size = 1426935, upload-time = "2026-11-05T05:36:31.447Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/31/a06474a3e0dc8366873fd10b7bbf690b9ad9b00603e02e5f14a370c74ed3/sentencepiece-0.2.3-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:dfc31f9f133a2712d396efa94d666c2ad83d5611ce34f11339429c6831253014", size = 1627113, upload-time = "2026-11-05T05:36:36.653Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/7e/78634050dcac5c3a6aedd6c315b83ce6bd466ccebf68f31a57d8d5655900/sentencepiece-0.2.3-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:4d82f2a0f704f5d0cf027bc8cc5ad49e23c11a9cc0b5bd08ca51985917963bf5", size = 1717008, upload-time = "2026-11-05T05:36:40.505Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/39/41b3c56beb8ced46bfb346a638ca588741fcd10b6e1143d9143787e1c66d/sentencepiece-0.2.3-cp313-cp313-win_amd64.whl", hash = "sha256:84e9def430ca8cc848b84adb304ffb77bff151cfc7dc66eb881f0385258f536b", size = 1655543, upload-time = "2026-11-05T05:36:49.566Z" },
+    { url = "https://files.pythonhosted.org/packages/00/18/12f01c575ea8afaa459959b9f71175c2caa9268639defe367db6d66a89bf/sentencepiece-0.2.3-cp313-cp313-win_arm64.whl", hash = "sha256:01e62cf99d3af7950cff04986c7e58dd4cd376fcf2367cd1c5314182d5f4adc5", size = 1860989, upload-time = "2026-11-05T05:36:56.342Z" },
+]
+
+[[package]]
 name = "setuptools"
 version = "81.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1872,6 +1885,20 @@ neutts = [
 omnivoice = [
     { name = "omnivoice" },
 ]
+silencio2 = [
+    { name = "einops" },
+    { name = "huggingface-hub" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "safetensors" },
+    { name = "scipy" },
+    { name = "sentencepiece" },
+    { name = "soundfile" },
+    { name = "tokenizers" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.11.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+]
 test = [
     { name = "httpx" },
     { name = "openai-whisper" },
@@ -1885,21 +1912,32 @@ tinytauk = [
 
 [package.metadata]
 requires-dist = [
+    { name = "einops", marker = "extra == 'silencio2'", specifier = ">=0.4" },
     { name = "fastapi" },
     { name = "httpx", marker = "extra == 'test'" },
+    { name = "huggingface-hub", marker = "extra == 'silencio2'" },
     { name = "librosa", marker = "extra == 'neutts'" },
     { name = "neutts", extras = ["all"], marker = "extra == 'neutts'", specifier = "==1.4.1" },
     { name = "numpy" },
     { name = "omnivoice", marker = "extra == 'omnivoice'", specifier = "==0.2.1" },
     { name = "openai-whisper", marker = "extra == 'test'" },
     { name = "praat-parselmouth", marker = "extra == 'neutts'" },
+    { name = "pydantic", marker = "extra == 'silencio2'" },
     { name = "pytest", marker = "extra == 'test'" },
+    { name = "pyyaml", marker = "extra == 'silencio2'" },
+    { name = "requests", marker = "extra == 'silencio2'", specifier = ">=2.20" },
+    { name = "safetensors", marker = "extra == 'silencio2'", specifier = ">=0.4" },
+    { name = "scipy", marker = "extra == 'silencio2'", specifier = ">=1.5" },
+    { name = "sentencepiece", marker = "extra == 'silencio2'", specifier = ">=0.2.1" },
+    { name = "soundfile", marker = "extra == 'silencio2'", specifier = ">=0.12" },
     { name = "spacy" },
     { name = "tinytauk", marker = "extra == 'tinytauk'", url = "https://github.com/datGryphon/tinytauk/archive/refs/tags/v0.2.0.tar.gz" },
+    { name = "tokenizers", marker = "extra == 'silencio2'", specifier = ">=0.21" },
+    { name = "torch", marker = "extra == 'silencio2'", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torchvision", marker = "extra == 'tinytauk'", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvicorn", extras = ["standard"] },
 ]
-provides-extras = ["neutts", "tinytauk", "omnivoice", "test"]
+provides-extras = ["neutts", "tinytauk", "omnivoice", "silencio2", "test"]
 
 [[package]]
 name = "tinytauk"

@@ -46,6 +46,9 @@ jobs:
           - backend: omnivoice
             label: OmniVoice
             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
+          - backend: silencio2
+            label: Silencio-2
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_silencio2_backend.py","tests/test_config.py","tests/test_backend_api.py","-q"]'
           - backend: tinytauk
             label: TinyTAuK
             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
@@ -86,6 +89,10 @@ jobs:
             label: OmniVoice
             shell: omnivoice
             pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
+          - backend: silencio2
+            label: Silencio-2
+            shell: silencio2
+            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_silencio2_backend.py","tests/test_config.py","tests/test_backend_api.py","-q"]'
           - backend: tinytauk
             label: TinyTAuK
             shell: tinytauk

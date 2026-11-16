@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 
-Backend = Literal["neutts", "tinytauk", "omnivoice"]
+Backend = Literal["neutts", "tinytauk", "omnivoice", "silencio2"]
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,7 @@ class Settings:
     omnivoice_language: str = ""
     omnivoice_ref_audio: Path | None = None
     omnivoice_ref_text: Path | None = None
+    silencio2_voice: str = "260"
     host: str = "0.0.0.0"
     port: int = 9002
     max_chars_per_chunk: int = 180
@@ -58,6 +59,7 @@ def load_settings() -> Settings:
         omnivoice_language=os.getenv("TINYTALK_OMNIVOICE_LANGUAGE", Settings.omnivoice_language),
         omnivoice_ref_audio=_optional_path_env("TINYTALK_OMNIVOICE_REF_AUDIO"),
         omnivoice_ref_text=_optional_path_env("TINYTALK_OMNIVOICE_REF_TEXT"),
+        silencio2_voice=os.getenv("TINYTALK_SILENCIO2_VOICE", Settings.silencio2_voice),
         host=os.getenv("TINYTALK_HOST", Settings.host),
         port=_int_env("TINYTALK_PORT", Settings.port),
         max_chars_per_chunk=_int_env(
@@ -82,9 +84,9 @@ def _backend_env(name: str, default: Backend) -> Backend:
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
-    if raw not in ("neutts", "tinytauk", "omnivoice"):
+    if raw not in ("neutts", "tinytauk", "omnivoice", "silencio2"):
         raise ValueError(
-            f"{name} must be 'neutts', 'tinytauk', or 'omnivoice', got {raw!r}"
+            f"{name} must be 'neutts', 'tinytauk', 'omnivoice', or 'silencio2', got {raw!r}"
         )
     return cast(Backend, raw)
 

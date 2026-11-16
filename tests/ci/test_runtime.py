@@ -9,6 +9,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 
 PROJECT = tomllib.loads(Path("pyproject.toml").read_text())
@@ -16,8 +17,7 @@ BACKEND = os.environ["TINYTALK_BACKEND"]
 
 
 def _name(requirement: str) -> str:
-    head = requirement.split(" @ ", 1)[0].split("==", 1)[0].strip()
-    return head.split("[", 1)[0]
+    return Requirement(requirement).name
 
 
 def _installed(name: str) -> bool:
@@ -34,6 +34,8 @@ def _check_requirement(requirement: str, *, required: bool) -> None:
         return
 
     actual = metadata.version(name)
+    specifier = Requirement(requirement).specifier
+    assert not specifier or specifier.contains(actual), (name, actual, str(specifier))
     if "==" in requirement:
         wanted = requirement.split("==", 1)[1].strip()
         assert actual == wanted or actual.split("+", 1)[0] == wanted, (

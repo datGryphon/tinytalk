@@ -29,3 +29,15 @@ def test_single_chunk_keeps_native_audio():
     audio = np.array([0.1, -0.2], dtype=np.float32)
     result = synthesize_chunks(["one"], 24000, 60, lambda *args: (audio, {}, 0))
     assert result.audio is audio
+
+
+def test_generation_failure_stops_before_next_chunk():
+    calls = []
+
+    def generate(text, index, count):
+        calls.append(text)
+        raise ValueError("generation failed")
+
+    with pytest.raises(ValueError, match="generation failed"):
+        synthesize_chunks(["first", "second"], 24000, 60, generate)
+    assert calls == ["first"]

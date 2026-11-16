@@ -13,6 +13,8 @@ surface. Synthesis is provided by one backend per service instance:
   TinyTAuK runtime;
 - `omnivoice`: multilingual auto voice, constrained attribute-based voice design,
   and optional reference-audio cloning through k2-fsa/OmniVoice.
+- `silencio2`: resident CPU Silencio-2 with bundled or configured reference
+  conditioning and native inline sounds/emotions.
 
 The main API is `POST /v1/audio/speech`. The repository exports a NixOS module
 as `nixosModules.default`.
@@ -67,6 +69,10 @@ feature flags unrelated to real backend differences.
   invent competing chunkers.
 - Use `engine.synthesize_chunks()` for chunk iteration, silence insertion, audio
   assembly and request timing. Backends retain control over chunk generation.
+- Silencio-2 uses the original package from its pinned Hugging Face snapshot,
+  which has no Python distribution metadata. Its extra supplies dependencies.
+  Cache the configured voice during load, preserve inline tags across shared
+  chunks, and use `normalize=False` to retain native expressive levels.
 - Shared correctness evaluation stays in `quality.py`. Backend-specific retry
   policy stays with each backend because their controls and failure modes differ.
 - Audio stays float `[-1, 1]` through the pipeline until final WAV/codec encoding.

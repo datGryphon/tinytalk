@@ -11,6 +11,8 @@ Supported backends:
   [`datGryphon/tinytauk`](https://github.com/datGryphon/tinytauk);
 - **OmniVoice** — multilingual auto voice, constrained attribute-based voice
   design, and optional reference-audio voice cloning through `k2-fsa/OmniVoice`.
+- **Silencio-2** — CPU speech with cached bundled/reference conditioning and
+  native inline vocal events and emotions.
 
 The flake exports `nixosModules.default`.
 
@@ -98,7 +100,7 @@ semantic prompt.
 
 The accepted request `speed` range is `0.25` to `4.0`.
 
-All backends use the same speech-quality evaluator. When `werEndpoint` is set,
+NeuTTS, TinyTAuK and OmniVoice use the same speech-quality evaluator. When `werEndpoint` is set,
 TinyTalk transcribes candidate audio through an OpenAI-compatible transcription
 endpoint and scores WER/CER before accepting or rerolling a chunk. With no
 endpoint configured, the legacy local confidence heuristic is used instead.
@@ -212,7 +214,7 @@ Key options:
 
 | Option | Default | Notes |
 | --- | --- | --- |
-| `backend` | `neutts` | `neutts`, `tinytauk`, or `omnivoice` |
+| `backend` | `neutts` | `neutts`, `tinytauk`, `omnivoice`, or `silencio2` |
 | `maxCharsPerChunk` | `180` | Max chars per synthesis call |
 | `interChunkSilenceMs` | `60` | Silence between chunks |
 | `maxRetries` | `2` | Quality-gated retries per chunk |
@@ -323,3 +325,27 @@ pytest tests/integration/test_omnivoice_real_speech.py
 Set `TINYTALK_WER_ENDPOINT` during real integration runs when the live shared
 WER/CER transcription path also needs validation. Artifacts are written under
 `test_artifacts/`.
+## Silencio-2 CPU Backend
+
+Select `TINYTALK_BACKEND=silencio2` and install with
+`uv sync --frozen --extra silencio2 --extra test` (or `nix develop .#silencio2`).
+`TINYTALK_SILENCIO2_VOICE` selects an upstream bundled ID (default `260`) or a
+local reference-audio path. NixOS exposes `services.tinytalk.silencio2Voice`.
+The configured voice is encoded at startup and reused; HTTP `voice` is ignored.
+
+TinyTalk loads the original `silencio2` Python package directly from the pinned
+Hugging Face snapshot `20930f5f6a6bb564f2a8207152fd5c5d8eecff03`. Upstream does
+not publish an installable Python distribution, so the optional extra declares
+its inference dependencies, while the snapshot supplies code, weights and bundled
+reference clips. Initial startup needs network/cache access to Hugging Face.
+No upstream source is copied into TinyTalk.
+
+Native sounds (`[laugh]`, `[sigh]`, `[gasp]`, `[cough]`, `[clear_throat]`) and
+delivery tags (`<happy>`, `<sad>`, `<angry>`, `<fear>`, `<surprised>`, `<whisper>`)
+belong in `input`, including with a configured reference. Nonempty `instructions`
+and speed other than `1.0` are unsupported. Output retains upstream's native
+24 kHz audio without loudness normalization or TinyTalk quality retries.
+
+Silencio-2 weights are CC-BY-4.0, based on Kyutai Pocket TTS; its core code is
+MIT. Retain upstream attribution and notices when redistributing model assets:
+<https://huggingface.co/BlueRoseLabs/Silencio-2/blob/main/NOTICE.md>.

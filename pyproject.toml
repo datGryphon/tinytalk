@@ -28,6 +28,19 @@ tinytauk = [
 omnivoice = [
   "omnivoice==0.2.1",
 ]
+silencio2 = [
+  "torch",
+  "huggingface-hub",
+  "pydantic",
+  "pyyaml",
+  "sentencepiece>=0.2.1",
+  "tokenizers>=0.21",
+  "safetensors>=0.4",
+  "scipy>=1.5",
+  "einops>=0.4",
+  "requests>=2.20",
+  "soundfile>=0.12",
+]
 test = [
   "pytest",
   "httpx",
