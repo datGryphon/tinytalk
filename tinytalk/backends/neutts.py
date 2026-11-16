@@ -16,28 +16,21 @@ from ..audio import (
 )
 from ..chunking import split_text
 from ..config import Settings
-from ..engine import SynthesisResult, synthesize_chunks
+from ..engine import SpeechEngine, SynthesisResult
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from .neutts_audio import compute_f0_mean, normalize_f0
 
 
-class NeuTTSEngine:
-    settings: Settings
+class NeuTTSEngine(SpeechEngine):
     tts: NeuTTS | None
     ref_codes: list[int] | None
     ref_text: str | None
-    sample_rate: int
-    loaded: bool
-    model_name: str
 
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+        super().__init__(settings, settings.model)
         self.tts = None
         self.ref_codes = None
         self.ref_text = None
-        self.sample_rate = 24_000
-        self.loaded = False
-        self.model_name = settings.model
 
     def load(self) -> None:
         self._validate_reference_files()
@@ -126,12 +119,7 @@ class NeuTTSEngine:
             return wav, chunk_timing, chunk_fallbacks
 
         try:
-            return synthesize_chunks(
-                chunks,
-                self.sample_rate,
-                self.settings.inter_chunk_silence_ms,
-                synthesize_chunk,
-            )
+            return self._synthesize_chunks(chunks, synthesize_chunk)
         finally:
             # Rerolls temporarily override the persistent GGUF backbone.
             self._apply_generation_settings(self.tts)

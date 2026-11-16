@@ -7,16 +7,13 @@ from chatterbox.tts_turbo import ChatterboxTurboTTS
 
 from ..chunking import split_tagged_text
 from ..config import Settings
-from ..engine import SynthesisResult, synthesize_chunks
+from ..engine import SpeechEngine, SynthesisResult
 
 
-class ChatterboxNanoEngine:
+class ChatterboxNanoEngine(SpeechEngine):
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+        super().__init__(settings, "ResembleAI/chatterbox-nano")
         self.tts = None
-        self.loaded = False
-        self.model_name = "ResembleAI/chatterbox-nano"
-        self.sample_rate = 24000
 
     def load(self) -> None:
         if self.loaded:
@@ -44,9 +41,7 @@ class ChatterboxNanoEngine:
         if not text.strip():
             raise ValueError("cannot synthesize empty text")
         chunks = split_tagged_text(text, self.settings.max_chars_per_chunk)
-        return synthesize_chunks(
-            chunks, self.sample_rate, self.settings.inter_chunk_silence_ms, self._chunk
-        )
+        return self._synthesize_chunks(chunks, self._chunk)
 
     def _chunk(self, text: str, index: int, count: int) -> tuple[np.ndarray, dict, int]:
         start = time.perf_counter()

@@ -72,6 +72,13 @@ def test_backend_dependencies_match_project():
         _check_requirement(requirement, required=True)
 
 
+def test_backend_inherits_speech_engine():
+    from tinytalk.config import Settings
+    from tinytalk.engine import SpeechEngine, create_engine
+
+    assert isinstance(create_engine(Settings(backend=BACKEND)), SpeechEngine)
+
+
 def test_installed_overrides_match_project():
     for requirement in PROJECT["tool"]["uv"]["override-dependencies"]:
         _check_requirement(requirement, required=False)

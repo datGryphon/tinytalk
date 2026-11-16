@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Protocol
 
 import numpy as np
 
@@ -28,39 +28,17 @@ class SynthesisResult:
     timing: RequestTiming | None = None
 
 
-def synthesize_chunks(
-    chunks: list[str],
-    sample_rate: int,
-    inter_chunk_silence_ms: int,
-    synthesize_chunk: Callable[[str, int, int], tuple[np.ndarray, dict, int]],
-) -> SynthesisResult:
-    """Synthesize pre-split chunks and assemble native audio and request timings."""
-    parts: list[np.ndarray] = []
-    chunk_timings: list[dict] = []
-    wer_fallbacks = 0
+class SpeechEngine(ABC):
+    def __init__(self, settings: Settings, model_name: str) -> None:
+        self.settings = settings
+        self.model_name = model_name
+        self.sample_rate = 24_000
+        self.loaded = False
 
-    for index, chunk in enumerate(chunks):
-        wav, chunk_timing, chunk_fallbacks = synthesize_chunk(chunk, index, len(chunks))
-        wer_fallbacks += chunk_fallbacks
-        if index > 0 and inter_chunk_silence_ms > 0:
-            parts.append(silence(sample_rate, inter_chunk_silence_ms, wav.dtype))
-        parts.append(wav)
-        chunk_timings.append(chunk_timing)
-
-    return SynthesisResult(
-        audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
-        sample_rate=sample_rate,
-        chunks=chunks,
-        timing=RequestTiming(chunks=chunk_timings, wer_fallbacks=wer_fallbacks),
-    )
-
-
-class SpeechEngine(Protocol):
-    loaded: bool
-    model_name: str
-
+    @abstractmethod
     def load(self) -> None: ...
 
+    @abstractmethod
     def synthesize(
         self,
         text: str,
@@ -68,6 +46,32 @@ class SpeechEngine(Protocol):
         instructions: str | None = None,
         speed: float | None = None,
     ) -> SynthesisResult: ...
+
+    def _synthesize_chunks(
+        self,
+        chunks: list[str],
+        synthesize_chunk: Callable[[str, int, int], tuple[np.ndarray, dict, int]],
+    ) -> SynthesisResult:
+        """Synthesize pre-split chunks and assemble native audio and request timings."""
+        parts: list[np.ndarray] = []
+        chunk_timings: list[dict] = []
+        wer_fallbacks = 0
+        silence_ms = self.settings.inter_chunk_silence_ms
+
+        for index, chunk in enumerate(chunks):
+            wav, chunk_timing, chunk_fallbacks = synthesize_chunk(chunk, index, len(chunks))
+            wer_fallbacks += chunk_fallbacks
+            if index > 0 and silence_ms > 0:
+                parts.append(silence(self.sample_rate, silence_ms, wav.dtype))
+            parts.append(wav)
+            chunk_timings.append(chunk_timing)
+
+        return SynthesisResult(
+            audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
+            sample_rate=self.sample_rate,
+            chunks=chunks,
+            timing=RequestTiming(chunks=chunk_timings, wer_fallbacks=wer_fallbacks),
+        )
 
 
 _BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
@@ -79,7 +83,7 @@ _BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
 }
 
 
-def _backend_class(backend: Backend):
+def _backend_class(backend: Backend) -> type[SpeechEngine]:
     try:
         module_name, class_name = _BACKEND_CLASSES[backend]
     except KeyError:

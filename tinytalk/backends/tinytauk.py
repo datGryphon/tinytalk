@@ -11,7 +11,7 @@ from .. import engine as engine_module
 from ..audio import edge_fade, peak_limit, trim_edge_silence
 from ..chunking import split_text
 from ..config import Settings
-from ..engine import SynthesisResult, synthesize_chunks
+from ..engine import SpeechEngine, SynthesisResult
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
@@ -27,19 +27,12 @@ _DURATION_MIN_FACTOR = 0.75
 _DURATION_MAX_FACTOR = 1.25
 
 
-class TinyTAuKEngine:
-    settings: Settings
+class TinyTAuKEngine(SpeechEngine):
     tts: TinyTAuK | None
-    sample_rate: int
-    loaded: bool
-    model_name: str
 
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+        super().__init__(settings, settings.tinytauk_model)
         self.tts = None
-        self.sample_rate = 24_000
-        self.loaded = False
-        self.model_name = settings.tinytauk_model
 
     def load(self) -> None:
         if self.settings.tinytauk_chars_per_second <= 0:
@@ -79,10 +72,8 @@ class TinyTAuKEngine:
             raise ValueError("speed must be positive")
 
         chunks = split_text(text, self.settings.max_chars_per_chunk)
-        return synthesize_chunks(
+        return self._synthesize_chunks(
             chunks,
-            self.sample_rate,
-            self.settings.inter_chunk_silence_ms,
             partial(
                 self._synthesize_chunk,
                 instructions=instructions,

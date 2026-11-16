@@ -11,7 +11,7 @@ from huggingface_hub import snapshot_download
 
 from ..chunking import split_tagged_text
 from ..config import Settings
-from ..engine import SynthesisResult, synthesize_chunks
+from ..engine import SpeechEngine, SynthesisResult
 
 _REPO_ID = "BlueRoseLabs/Silencio-2"
 _REVISION = "20930f5f6a6bb564f2a8207152fd5c5d8eecff03"
@@ -34,21 +34,14 @@ def _assert_snapshot_owned(silencio2_module: Any, snapshot_path: Path) -> None:
         ) from None
 
 
-class Silencio2Engine:
-    settings: Settings
+class Silencio2Engine(SpeechEngine):
     tts: Any | None
-    sample_rate: int
-    loaded: bool
-    model_name: str
     _emotions: tuple[str, ...]
     _sounds: tuple[str, ...]
 
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+        super().__init__(settings, _REPO_ID)
         self.tts = None
-        self.sample_rate = 24_000
-        self.loaded = False
-        self.model_name = "BlueRoseLabs/Silencio-2"
         self._emotions = ()
         self._sounds = ()
 
@@ -94,12 +87,7 @@ class Silencio2Engine:
             raise ValueError("silencio2 supports only speed=1.0")
 
         chunks = self._prepare_chunks(text)
-        return synthesize_chunks(
-            chunks,
-            self.sample_rate,
-            self.settings.inter_chunk_silence_ms,
-            self._synthesize_chunk,
-        )
+        return self._synthesize_chunks(chunks, self._synthesize_chunk)
 
     def _prepare_chunks(self, text: str) -> list[str]:
         self._validate_tags(text)

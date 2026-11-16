@@ -1,7 +1,21 @@
 import numpy as np
 import pytest
 
-from tinytalk.engine import synthesize_chunks
+from tinytalk.config import Settings
+from tinytalk.engine import SpeechEngine
+
+
+class StubEngine(SpeechEngine):
+    def load(self):
+        self.loaded = True
+
+    def synthesize(self, text, *, instructions=None, speed=None):
+        raise NotImplementedError
+
+
+def test_base_is_abstract():
+    with pytest.raises(TypeError):
+        SpeechEngine(Settings(), "test")
 
 
 @pytest.mark.parametrize("silence_ms", [0, 2])
@@ -13,7 +27,9 @@ def test_assembles_chunks_and_aggregates_timings(silence_ms):
         calls.append((text, index, num_chunks))
         return np.full(2, (index + 1) / 4, dtype=np.float32), {"index": index}, index
 
-    result = synthesize_chunks(chunks, 1000, silence_ms, synthesize_chunk)
+    engine = StubEngine(Settings(inter_chunk_silence_ms=silence_ms), "test")
+    engine.sample_rate = 1000
+    result = engine._synthesize_chunks(chunks, synthesize_chunk)
 
     assert calls == [("one", 0, 3), ("two", 1, 3), ("three", 2, 3)]
     gap = [0.0] * silence_ms
@@ -27,7 +43,8 @@ def test_assembles_chunks_and_aggregates_timings(silence_ms):
 
 def test_single_chunk_keeps_native_audio():
     audio = np.array([0.1, -0.2], dtype=np.float32)
-    result = synthesize_chunks(["one"], 24000, 60, lambda *args: (audio, {}, 0))
+    engine = StubEngine(Settings(), "test")
+    result = engine._synthesize_chunks(["one"], lambda *args: (audio, {}, 0))
     assert result.audio is audio
 
 
@@ -39,5 +56,5 @@ def test_generation_failure_stops_before_next_chunk():
         raise ValueError("generation failed")
 
     with pytest.raises(ValueError, match="generation failed"):
-        synthesize_chunks(["first", "second"], 24000, 60, generate)
+        StubEngine(Settings(), "test")._synthesize_chunks(["first", "second"], generate)
     assert calls == ["first"]

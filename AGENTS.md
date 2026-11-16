@@ -66,10 +66,11 @@ feature flags unrelated to real backend differences.
   requires its selected backend extra.
 - A running TinyTalk service owns exactly one synthesis backend.
 - `server.py` owns request validation and the process-level async inference lock.
-  Backend engines expose `load()`, `synthesize()`, `loaded`, and `model_name`.
+  All backend engines inherit `SpeechEngine` and implement `load()` and
+  `synthesize()`; the base class owns common state.
 - Long input chunking stays in `chunking.py`; backend implementations should not
   invent competing chunkers.
-- Use `engine.synthesize_chunks()` for chunk iteration, silence insertion, audio
+- Use `SpeechEngine._synthesize_chunks()` for chunk iteration, silence insertion, audio
   assembly and request timing. Backends retain control over chunk generation.
 - Silencio-2 uses the original package from its pinned Hugging Face snapshot,
   which has no Python distribution metadata. Its extra supplies dependencies.
@@ -129,7 +130,7 @@ WER/CER transcription path also needs validation.
 ```text
 tinytalk/
   server.py                 FastAPI API, lifespan, request lock
-  engine.py                 shared SynthesisResult/protocol and backend factory
+  engine.py                 abstract SpeechEngine, shared results and backend factory
   quality.py                shared transcription, WER/CER, edit and leak scoring
   wer.py                    compatibility wrapper around shared quality helpers
   backends/

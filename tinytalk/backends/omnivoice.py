@@ -13,28 +13,21 @@ from .. import engine as engine_module
 from ..audio import edge_fade, peak_limit, trim_edge_silence
 from ..chunking import split_text
 from ..config import Settings
-from ..engine import SynthesisResult, synthesize_chunks
+from ..engine import SpeechEngine, SynthesisResult
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 
 _RETRY_CLASS_TEMPERATURE_STEP = 0.2
 _MAX_RETRY_CLASS_TEMPERATURE = 1.0
 
 
-class OmniVoiceEngine:
-    settings: Settings
+class OmniVoiceEngine(SpeechEngine):
     tts: OmniVoice | None
     voice_clone_prompt: Any | None
-    sample_rate: int
-    loaded: bool
-    model_name: str
 
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+        super().__init__(settings, settings.omnivoice_model)
         self.tts = None
         self.voice_clone_prompt = None
-        self.sample_rate = 24_000
-        self.loaded = False
-        self.model_name = settings.omnivoice_model
 
     def load(self) -> None:
         self._validate_reference_config()
@@ -74,10 +67,8 @@ class OmniVoiceEngine:
         instructions = instructions.strip() if instructions else None
         language = self.settings.omnivoice_language.strip() or None
         chunks = split_text(text, self.settings.max_chars_per_chunk)
-        return synthesize_chunks(
+        return self._synthesize_chunks(
             chunks,
-            self.sample_rate,
-            self.settings.inter_chunk_silence_ms,
             partial(
                 self._synthesize_chunk,
                 instructions=instructions,
