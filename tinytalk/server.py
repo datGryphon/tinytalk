@@ -83,15 +83,12 @@ async def create_speech(payload: SpeechRequest) -> Response:
     error: Exception | None = None
     try:
         async with infer_lock:
-            if settings.backend == "neutts":
-                result = await run_in_threadpool(engine.synthesize, payload.input)
-            else:
-                result = await run_in_threadpool(
-                    engine.synthesize,
-                    payload.input,
-                    instructions=payload.instructions,
-                    speed=payload.speed,
-                )
+            result = await run_in_threadpool(
+                engine.synthesize,
+                payload.input,
+                instructions=payload.instructions,
+                speed=payload.speed,
+            )
         wav = to_wav_bytes(result.audio, result.sample_rate)
         body, media_type = await run_in_threadpool(encode_audio, wav, payload.response_format)
     except Exception as exc:

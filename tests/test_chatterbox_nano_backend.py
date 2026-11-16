@@ -5,6 +5,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("chatterbox")
 
 from tinytalk.backends import chatterbox_nano as backend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 
 
@@ -40,7 +41,7 @@ def _engine(monkeypatch, model, **overrides):
     monkeypatch.setattr(
         backend.ChatterboxTurboTTS, "from_pretrained", staticmethod(from_pretrained)
     )
-    return backend.ChatterboxNanoEngine(Settings(**values)), model, loads
+    return SpeechEngine(backend.ChatterboxNanoBackend(Settings(**values))), model, loads
 
 
 @pytest.fixture
@@ -63,8 +64,8 @@ def test_native_output_and_timing(engine):
     assert "text" not in result.timing.chunks[0]
     assert result.timing.chunks[0]["status"] == "accepted"
     assert "t_infer" in result.timing.chunks[0]
-    assert engine.tts.generate_calls[0][0] == result.chunks[0]
-    assert engine.tts.generate_calls[0][1] == {}
+    assert engine.backend.tts.generate_calls[0][0] == result.chunks[0]
+    assert engine.backend.tts.generate_calls[0][1] == {}
 
 
 def test_multi_chunk_timing_and_assembly(engine):
@@ -80,10 +81,10 @@ def test_load_caches_same_model(monkeypatch):
     instance, _, loads = _engine(monkeypatch, model)
     instance.load()
     assert instance.loaded is True
-    first = instance.tts
+    first = instance.backend.tts
     assert len(loads) == 1
     instance.load()
-    assert instance.tts is first
+    assert instance.backend.tts is first
     assert instance.sample_rate == 24000
     assert len(loads) == 1
 
@@ -149,6 +150,6 @@ def test_empty_text_rejected(engine):
 
 
 def test_unloaded_rejected():
-    engine = backend.ChatterboxNanoEngine(Settings(backend="chatterbox_nano"))
+    engine = SpeechEngine(backend.ChatterboxNanoBackend(Settings(backend="chatterbox_nano")))
     with pytest.raises(RuntimeError):
         engine.synthesize("Hello")

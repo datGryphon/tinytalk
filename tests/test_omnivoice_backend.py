@@ -7,6 +7,7 @@ import pytest
 pytest.importorskip("omnivoice")
 
 from tinytalk.backends import omnivoice as omnivoice_backend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 from tinytalk.quality import QualityResult
 
@@ -64,14 +65,14 @@ def bad_quality() -> QualityResult:
     )
 
 
-def make_engine(monkeypatch, settings: Settings) -> omnivoice_backend.OmniVoiceEngine:
+def make_engine(monkeypatch, settings: Settings) -> SpeechEngine[omnivoice_backend.OmniVoiceBackend]:
     monkeypatch.setattr(omnivoice_backend, "OmniVoice", FakeOmniVoice)
     monkeypatch.setattr(
         omnivoice_backend,
         "evaluate_audio",
         lambda *args, **kwargs: good_quality(),
     )
-    engine = omnivoice_backend.OmniVoiceEngine(settings)
+    engine = SpeechEngine(omnivoice_backend.OmniVoiceBackend(settings))
     engine.load()
     return engine
 
@@ -172,9 +173,9 @@ def test_reference_audio_and_text_must_be_paired(monkeypatch, tmp_path: Path):
     ref_audio = tmp_path / "ref.wav"
     ref_audio.write_bytes(b"RIFF")
     monkeypatch.setattr(omnivoice_backend, "OmniVoice", FakeOmniVoice)
-    engine = omnivoice_backend.OmniVoiceEngine(
+    engine = SpeechEngine(omnivoice_backend.OmniVoiceBackend(
         Settings(backend="omnivoice", omnivoice_ref_audio=ref_audio)
-    )
+    ))
 
     with pytest.raises(ValueError, match="must be configured together"):
         engine.load()
@@ -188,9 +189,9 @@ def test_quality_retry_adds_sampling_temperature(monkeypatch):
         "evaluate_audio",
         lambda *args, **kwargs: next(qualities),
     )
-    engine = omnivoice_backend.OmniVoiceEngine(
+    engine = SpeechEngine(omnivoice_backend.OmniVoiceBackend(
         Settings(backend="omnivoice", max_retries=1)
-    )
+    ))
     engine.load()
 
     result = engine.synthesize("hello world")
@@ -211,9 +212,9 @@ def test_quality_exhaustion_returns_best_candidate_as_fallback(monkeypatch):
         "evaluate_audio",
         lambda *args, **kwargs: bad_quality(),
     )
-    engine = omnivoice_backend.OmniVoiceEngine(
+    engine = SpeechEngine(omnivoice_backend.OmniVoiceBackend(
         Settings(backend="omnivoice", max_retries=1)
-    )
+    ))
     engine.load()
 
     result = engine.synthesize("hello world")

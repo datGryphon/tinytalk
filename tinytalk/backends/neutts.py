@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
@@ -15,14 +16,18 @@ from ..audio import (
     peak_limit,
     trim_edge_silence,
 )
-from ..chunking import split_text
 from ..config import Settings
-from ..engine import ChunkResult, SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from .neutts_audio import compute_f0_mean, normalize_f0
 
 
-class NeuTTSEngine(SpeechEngine):
+@dataclass
+class NeuTTSRequest(SynthesisRequest):
+    previous_f0_mean: float | None = None
+
+
+class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
     tts: NeuTTS | None
     ref_codes: list[int] | None
     ref_text: str | None
@@ -93,38 +98,37 @@ class NeuTTSEngine(SpeechEngine):
         backbone.create_completion = create_completion
 
     @override
-    def synthesize(
+    def prepare_request(
         self,
-        text: str,
         *,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> SynthesisResult:
+        instructions: str | None,
+        speed: float | None,
+    ) -> NeuTTSRequest:
         del instructions, speed  # NeuTTS has no equivalent stable controls.
 
-        if self.tts is None:
-            raise RuntimeError("engine not loaded. Call load() first")
+        return NeuTTSRequest(instructions=None, speed=None)
 
-        chunks = split_text(text, self.settings.max_chars_per_chunk)
-        prev_f0_mean: float | None = None
+    @override
+    def synthesize_chunk(
+        self,
+        request: NeuTTSRequest,
+        chunk_text: str,
+        index: int,
+        num_chunks: int,
+    ) -> ChunkResult:
+        wav, timing, fallbacks = self._synthesize_chunk(chunk_text, index, num_chunks)
+        f0_start = time.perf_counter()
+        if request.previous_f0_mean is not None:
+            wav = normalize_f0(wav, self.sample_rate, request.previous_f0_mean)
+        request.previous_f0_mean = compute_f0_mean(wav, self.sample_rate)
+        timing["t_f0"] = time.perf_counter() - f0_start
+        timing["duration"] = float(len(wav) / self.sample_rate)
+        return wav, timing, fallbacks
 
-        def synthesize_chunk(chunk: str, index: int, num_chunks: int) -> ChunkResult:
-            nonlocal prev_f0_mean
-            wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
-                chunk, index, num_chunks
-            )
-            f0_start = time.perf_counter()
-            if prev_f0_mean is not None:
-                wav = normalize_f0(wav, self.sample_rate, prev_f0_mean)
-            prev_f0_mean = compute_f0_mean(wav, self.sample_rate)
-            chunk_timing["t_f0"] = time.perf_counter() - f0_start
-            chunk_timing["duration"] = float(len(wav) / self.sample_rate)
-            return wav, chunk_timing, chunk_fallbacks
-
-        try:
-            return self._synthesize_chunks(chunks, synthesize_chunk)
-        finally:
-            # Rerolls temporarily override the persistent GGUF backbone.
+    @override
+    def finalize_request(self, request: NeuTTSRequest) -> None:
+        # Rerolls temporarily override the persistent GGUF backbone.
+        if self.tts is not None:
             self._apply_generation_settings(self.tts)
 
     def _synthesize_chunk(
@@ -133,6 +137,8 @@ class NeuTTSEngine(SpeechEngine):
         index: int,
         num_chunks: int,
     ) -> ChunkResult:
+        if self.tts is None:
+            raise RuntimeError("engine not loaded. Call load() first")
         best_audio: np.ndarray | None = None
         best_quality: QualityResult | None = None
         best_rank: tuple[bool, bool, float, float] | None = None

@@ -10,7 +10,8 @@ import numpy as np
 
 from tinytalk import engine as engine_module
 from tinytalk.audio import to_wav_bytes
-from tinytalk.backends.tinytauk import TinyTAuKEngine
+from tinytalk.backends.tinytauk import TinyTAuKBackend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 
 TARGET = (
@@ -26,11 +27,11 @@ HIGH_STYLE = (
 )
 
 
-def _attach(base: TinyTAuKEngine, settings: Settings) -> TinyTAuKEngine:
-    engine = TinyTAuKEngine(settings)
-    engine.tts = base.tts
-    engine.sample_rate = base.sample_rate
-    engine.loaded = True
+def _attach(base: SpeechEngine[TinyTAuKBackend], settings: Settings) -> SpeechEngine[TinyTAuKBackend]:
+    engine = SpeechEngine(TinyTAuKBackend(settings))
+    engine.backend.tts = base.backend.tts
+    engine.backend.sample_rate = base.sample_rate
+    engine.backend.loaded = True
     return engine
 
 
@@ -112,7 +113,7 @@ def _acoustic_metrics(audio: np.ndarray, sample_rate: int) -> dict[str, float | 
 
 
 def _run(
-    base: TinyTAuKEngine,
+    base: SpeechEngine[TinyTAuKBackend],
     *,
     settings: Settings,
     name: str,
@@ -154,7 +155,7 @@ def _run(
     }
 
 
-def _style_sweep(base: TinyTAuKEngine, settings: Settings, out_dir: Path) -> list[dict]:
+def _style_sweep(base: SpeechEngine[TinyTAuKBackend], settings: Settings, out_dir: Path) -> list[dict]:
     records = [
         _run(
             base,
@@ -203,7 +204,7 @@ def _style_sweep(base: TinyTAuKEngine, settings: Settings, out_dir: Path) -> lis
 
 
 def _correction_fault_injection(
-    base: TinyTAuKEngine,
+    base: SpeechEngine[TinyTAuKBackend],
     settings: Settings,
     out_dir: Path,
 ) -> list[dict]:
@@ -295,7 +296,7 @@ def main() -> None:
     )
 
     print("Loading TinyTAuK once...")
-    base = TinyTAuKEngine(settings)
+    base = SpeechEngine(TinyTAuKBackend(settings))
     base.load()
 
     style = _style_sweep(base, settings, out_dir)

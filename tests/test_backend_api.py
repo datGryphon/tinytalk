@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from tinytalk import engine as engine_module
 from tinytalk import server
 from tinytalk.config import Settings
-from tinytalk.engine import SynthesisResult, TinyTalkEngine, create_engine
+from tinytalk.engine import SpeechEngine, SynthesisResult, TinyTalkEngine, create_engine
 
 
 class FakeControlledEngine:
@@ -84,6 +84,7 @@ def test_legacy_tinytalk_engine_respects_backend_selection(monkeypatch):
 
     engine = TinyTalkEngine(settings)
 
-    assert isinstance(engine, FakeControlledEngine)
+    assert type(engine) is SpeechEngine
+    assert isinstance(engine.backend, FakeControlledEngine)
     assert engine.settings is settings
     assert seen == ["omnivoice"]

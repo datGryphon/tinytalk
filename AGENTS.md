@@ -66,16 +66,20 @@ feature flags unrelated to real backend differences.
   requires its selected backend extra.
 - A running TinyTalk service owns exactly one synthesis backend.
 - `server.py` owns request validation and the process-level async inference lock.
-  All backend engines inherit `SpeechEngine` and implement `load()` and
-  `synthesize()`; the base class owns common state.
+  One concrete `SpeechEngine` composes a `SpeechBackend` strategy. Its
+  `synthesize()` owns request preparation, chunking, iteration, assembly, timing
+  and finalization. Backends implement `load()`, `prepare_request()` and
+  `synthesize_chunk()`; they may override `prepare_chunks()` and
+  `finalize_request()` for actual model-specific behavior.
   Declare instance attributes with explicit types at class scope and initialize
-  them in `__init__`. Declare shared state on the base class, and model-specific
-  state on the concrete backend using the upstream types. Mark interface
+  them in `__init__`. Declare resident state on the backend base class, and
+  model-specific state on the concrete backend using upstream types. Mark interface
   overrides with `@override`.
 - Long input chunking stays in `chunking.py`; backend implementations should not
   invent competing chunkers.
-- Use `SpeechEngine._synthesize_chunks()` for chunk iteration, silence insertion, audio
-  assembly and request timing. Backends retain control over chunk generation.
+- Keep request-local state in `SynthesisRequest` (or a typed subclass when
+  needed). Never duplicate the engine's synthesis loop in a backend. Cleanup
+  belongs in `finalize_request()`, which runs even when synthesis fails.
 - Silencio-2 uses the original package from its pinned Hugging Face snapshot,
   which has no Python distribution metadata. Its extra supplies dependencies.
   Cache the configured voice during load, preserve inline tags across shared
@@ -134,7 +138,7 @@ WER/CER transcription path also needs validation.
 ```text
 tinytalk/
   server.py                 FastAPI API, lifespan, request lock
-  engine.py                 abstract SpeechEngine, shared results and backend factory
+  engine.py                 concrete SpeechEngine, SpeechBackend strategy, request/results, factory
   quality.py                shared transcription, WER/CER, edit and leak scoring
   wer.py                    compatibility wrapper around shared quality helpers
   backends/
@@ -142,6 +146,8 @@ tinytalk/
     neutts_audio.py         NeuTTS-only RMS/F0 audio transforms
     tinytauk.py             TinyTAuK adapter and AuK instruction/duration policy
     omnivoice.py            OmniVoice load/mode/clone/retry policy
+    silencio2.py            Silencio-2 conditioning and expressive tags
+    chatterbox_nano.py      Chatterbox Nano conditioning and native generation
   config.py                 environment-backed Settings
   chunking.py               sentence/phrase/word chunking
   audio.py                  shared WAV/codec and minimal splice-safe helpers
@@ -163,8 +169,8 @@ Request flow:
 POST /v1/audio/speech
   -> server validation
   -> one async inference lock
-  -> selected backend synthesize()
-  -> shared chunk concatenation result
+  -> SpeechEngine.synthesize()
+  -> backend prepare/generate/finalize, shared chunk assembly
   -> WAV bytes
   -> optional ffmpeg MP3/Opus encoding
   -> response

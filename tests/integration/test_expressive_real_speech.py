@@ -37,7 +37,7 @@ def test_resident_expressive_http(backend, conditioned, monkeypatch):
     mode = "reference" if conditioned else "bundled"
     with TestClient(server.app) as client:
         assert client.get("/health").status_code == 200
-        model = engine.tts
+        model = engine.backend.tts
         cached = dict(model._voices) if backend == "silencio2" else model.conds
         for name, text in [
             ("ordinary", "The system is operating normally."),
@@ -53,7 +53,7 @@ def test_resident_expressive_http(backend, conditioned, monkeypatch):
             if name == "long":
                 assert int(response.headers["X-TinyTalk-Chunks"]) > 1
             (output / f"{mode}-{name}.wav").write_bytes(response.content)
-            assert engine.tts is model
+            assert engine.backend.tts is model
             if backend == "silencio2":
                 assert model._voices.keys() == cached.keys()
                 assert all(model._voices[key] is value for key, value in cached.items())

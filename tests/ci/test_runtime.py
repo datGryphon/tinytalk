@@ -72,24 +72,26 @@ def test_backend_dependencies_match_project():
         _check_requirement(requirement, required=True)
 
 
-def test_backend_inherits_speech_engine():
+def test_engine_composes_speech_backend():
     from tinytalk.config import Settings
-    from tinytalk.engine import SpeechEngine, create_engine
+    from tinytalk.engine import SpeechBackend, SpeechEngine, create_engine
 
     settings = Settings(backend=BACKEND)
     engine = create_engine(settings)
-    assert isinstance(engine, SpeechEngine)
+    assert type(engine) is SpeechEngine
+    assert isinstance(engine.backend, SpeechBackend)
     assert engine.settings is settings
     assert engine.loaded is False
     assert engine.sample_rate == 24_000
     assert engine.model_name
 
-    declared = {
-        name
-        for cls in type(engine).__mro__
-        for name in cls.__dict__.get("__annotations__", {})
-    }
-    assert vars(engine).keys() <= declared
+    for instance in (engine, engine.backend):
+        declared = {
+            name
+            for cls in type(instance).__mro__
+            for name in cls.__dict__.get("__annotations__", {})
+        }
+        assert vars(instance).keys() <= declared
 
 
 def test_installed_overrides_match_project():

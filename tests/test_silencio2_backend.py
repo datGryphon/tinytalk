@@ -8,6 +8,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("huggingface_hub")
 
 from tinytalk.backends import silencio2 as backend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 
 
@@ -42,7 +43,7 @@ def engine(monkeypatch, tmp_path):
     )
     monkeypatch.setitem(sys.modules, "silencio2", module)
     monkeypatch.setattr(backend, "snapshot_download", lambda **kwargs: str(tmp_path))
-    instance = backend.Silencio2Engine(Settings(backend="silencio2", max_chars_per_chunk=30))
+    instance = SpeechEngine(backend.Silencio2Backend(Settings(backend="silencio2", max_chars_per_chunk=30)))
     instance.load()
     instance.load()
     assert len(loads) == 1
@@ -58,7 +59,7 @@ def test_native_output_and_timing(engine):
     assert result.sample_rate == 24000
     assert result.timing.chunks[0]["attempts"] == 1
     assert "text" not in result.timing.chunks[0]
-    assert engine.tts.calls[0][1] == {"voice": "260", "normalize": False}
+    assert engine.backend.tts.calls[0][1] == {"voice": "260", "normalize": False}
 
 
 def test_restores_different_tags_in_order(engine):
@@ -70,7 +71,7 @@ def test_restores_different_tags_in_order(engine):
 
 
 def test_nonleading_emotion_persists(engine):
-    chunks = engine._carry_emotions(["Hello <happy> there <sad> now", "Next sentence."])
+    chunks = engine.backend._carry_emotions(["Hello <happy> there <sad> now", "Next sentence."])
     assert chunks[1] == "<sad> Next sentence."
 
 
@@ -88,4 +89,4 @@ def test_unsupported_controls(engine, kwargs):
 
 def test_unloaded_rejected():
     with pytest.raises(RuntimeError):
-        backend.Silencio2Engine(Settings()).synthesize("Hello")
+        SpeechEngine(backend.Silencio2Backend(Settings())).synthesize("Hello")

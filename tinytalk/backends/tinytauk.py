@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-from functools import partial
 from typing import override
 
 import numpy as np
@@ -10,9 +9,8 @@ from tinytauk import TinyTAuK
 
 from .. import engine as engine_module
 from ..audio import edge_fade, peak_limit, trim_edge_silence
-from ..chunking import split_text
 from ..config import Settings
-from ..engine import ChunkResult, SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
@@ -28,7 +26,7 @@ _DURATION_MIN_FACTOR = 0.75
 _DURATION_MAX_FACTOR = 1.25
 
 
-class TinyTAuKEngine(SpeechEngine):
+class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
     tts: TinyTAuK | None
 
     def __init__(self, settings: Settings) -> None:
@@ -60,42 +58,31 @@ class TinyTAuKEngine(SpeechEngine):
         self.loaded = True
 
     @override
-    def synthesize(
+    def prepare_request(
         self,
-        text: str,
         *,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> SynthesisResult:
-        if self.tts is None:
-            raise RuntimeError("engine not loaded. Call load() first")
-
+        instructions: str | None,
+        speed: float | None,
+    ) -> SynthesisRequest:
         speed_value = 1.0 if speed is None else speed
         if speed_value <= 0:
             raise ValueError("speed must be positive")
 
-        chunks = split_text(text, self.settings.max_chars_per_chunk)
-        return self._synthesize_chunks(
-            chunks,
-            partial(
-                self._synthesize_chunk,
-                instructions=instructions,
-                speed=speed_value,
-            ),
-        )
+        return SynthesisRequest(instructions=instructions, speed=speed_value)
 
-    def _synthesize_chunk(
+    @override
+    def synthesize_chunk(
         self,
+        request: SynthesisRequest,
         chunk_text: str,
         index: int,
         num_chunks: int,
-        *,
-        instructions: str | None,
-        speed: float,
     ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
+        instructions = request.instructions
+        speed = request.speed if request.speed is not None else 1.0
         description = self._description(instructions)
         base_duration = self._duration_seconds(chunk_text, speed)
         duration = base_duration

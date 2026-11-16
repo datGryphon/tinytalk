@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from functools import partial
 from pathlib import Path
 from typing import override
 
@@ -11,16 +10,15 @@ from omnivoice.models.omnivoice import OmniVoice, VoiceClonePrompt
 
 from .. import engine as engine_module
 from ..audio import edge_fade, peak_limit, trim_edge_silence
-from ..chunking import split_text
 from ..config import Settings
-from ..engine import ChunkResult, SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 
 _RETRY_CLASS_TEMPERATURE_STEP = 0.2
 _MAX_RETRY_CLASS_TEMPERATURE = 1.0
 
 
-class OmniVoiceEngine(SpeechEngine):
+class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
     tts: OmniVoice | None
     voice_clone_prompt: VoiceClonePrompt | None
 
@@ -54,44 +52,31 @@ class OmniVoiceEngine(SpeechEngine):
         self.loaded = True
 
     @override
-    def synthesize(
+    def prepare_request(
         self,
-        text: str,
-        *,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> SynthesisResult:
-        if self.tts is None:
-            raise RuntimeError("engine not loaded. Call load() first")
-        if speed is not None and speed <= 0:
-            raise ValueError("speed must be positive")
-
-        instructions = instructions.strip() if instructions else None
-        language = self.settings.omnivoice_language.strip() or None
-        chunks = split_text(text, self.settings.max_chars_per_chunk)
-        return self._synthesize_chunks(
-            chunks,
-            partial(
-                self._synthesize_chunk,
-                instructions=instructions,
-                speed=speed,
-                language=language,
-            ),
-        )
-
-    def _synthesize_chunk(
-        self,
-        chunk_text: str,
-        index: int,
-        num_chunks: int,
         *,
         instructions: str | None,
         speed: float | None,
-        language: str | None,
+    ) -> SynthesisRequest:
+        if speed is not None and speed <= 0:
+            raise ValueError("speed must be positive")
+
+        return SynthesisRequest(instructions=instructions.strip() if instructions else None, speed=speed)
+
+    @override
+    def synthesize_chunk(
+        self,
+        request: SynthesisRequest,
+        chunk_text: str,
+        index: int,
+        num_chunks: int,
     ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
+        instructions = request.instructions
+        speed = request.speed
+        language = self.settings.omnivoice_language.strip() or None
         mode = self._mode(instructions)
         num_attempts = self.settings.max_retries + 1
         best_audio: np.ndarray | None = None

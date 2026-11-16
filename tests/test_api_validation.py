@@ -9,14 +9,14 @@ from fastapi.testclient import TestClient
 
 from tinytalk import server
 from tinytalk.config import Settings
-from tinytalk.engine import RequestTiming, TinyTalkEngine, SynthesisResult
+from tinytalk.engine import RequestTiming, SpeechEngine, SynthesisResult
 
 
 class FakeEngine:
     loaded = True
     last_text = None
 
-    def synthesize(self, text):
+    def synthesize(self, text, *, instructions=None, speed=None):
         self.last_text = text
         return SynthesisResult(
             audio=np.zeros(2400, dtype=np.float32),
@@ -154,7 +154,7 @@ class FakeEngineTiming:
     last_audio: np.ndarray | None = None
     last_sample_rate: int | None = None
 
-    def synthesize(self, text):
+    def synthesize(self, text, *, instructions=None, speed=None):
         audio = np.zeros(2400, dtype=np.float32)
         self.last_audio = audio
         self.last_sample_rate = 24_000
@@ -227,7 +227,7 @@ def _good_audio() -> np.ndarray:
     )
 
 
-def _real_engine_with_fake_tts() -> TinyTalkEngine:
+def _real_engine_with_fake_tts() -> SpeechEngine:
     """A real engine with a fake NeuTTS backbone so synthesize succeeds offline."""
     voices = Path(__file__).parent / "voices"
     settings = Settings(
@@ -237,12 +237,15 @@ def _real_engine_with_fake_tts() -> TinyTalkEngine:
         wer_threshold=1.0,  # accept the first good attempt
         max_retries=0,
     )
-    engine = TinyTalkEngine(settings)
-    engine.ref_codes = [1, 2, 3]
-    engine.ref_text = "test reference"
-    engine.sample_rate = 24_000
-    engine.tts = MagicMock()
-    engine.tts.infer = MagicMock(return_value=_good_audio())
+    from tinytalk.backends.neutts import NeuTTSBackend
+
+    engine = SpeechEngine(NeuTTSBackend(settings))
+    engine.backend.ref_codes = [1, 2, 3]
+    engine.backend.ref_text = "test reference"
+    engine.backend.sample_rate = 24_000
+    engine.backend.tts = MagicMock()
+    engine.backend.tts.infer = MagicMock(return_value=_good_audio())
+    engine.backend.loaded = True
     # Skip model download: the lifespan calls load(), which would hit the network.
     engine.load = lambda: None
     return engine
@@ -290,7 +293,7 @@ def test_synthesis_failure_logs_error_without_input(monkeypatch, caplog):
     class FailingSynthEngine:
         loaded = True
 
-        def synthesize(self, text):
+        def synthesize(self, text, *, instructions=None, speed=None):
             raise RuntimeError(f"boom involving {text!r}")
 
         def load(self):
@@ -326,7 +329,7 @@ def test_encoding_failure_logs_error_without_input(monkeypatch, caplog):
     class OkSynthEngine:
         loaded = True
 
-        def synthesize(self, text):
+        def synthesize(self, text, *, instructions=None, speed=None):
             return SynthesisResult(
                 audio=np.zeros(2400, dtype=np.float32),
                 sample_rate=24_000,

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
+from typing import Any
 
 import numpy as np
 
 from .audio import silence
+from .chunking import split_text
 from .config import Backend, Settings
 from .quality import QualityResult, transcribe_chunk
 
@@ -30,7 +31,13 @@ class SynthesisResult:
     timing: RequestTiming | None = None
 
 
-class SpeechEngine(ABC):
+@dataclass
+class SynthesisRequest:
+    instructions: str | None
+    speed: float | None
+
+
+class SpeechBackend[RequestT: SynthesisRequest](ABC):
     settings: Settings
     model_name: str
     sample_rate: int
@@ -46,39 +53,27 @@ class SpeechEngine(ABC):
     def load(self) -> None: ...
 
     @abstractmethod
-    def synthesize(
+    def prepare_request(
         self,
-        text: str,
         *,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> SynthesisResult: ...
+        instructions: str | None,
+        speed: float | None,
+    ) -> RequestT: ...
 
-    def _synthesize_chunks(
+    def prepare_chunks(self, text: str) -> list[str]:
+        return split_text(text, self.settings.max_chars_per_chunk)
+
+    @abstractmethod
+    def synthesize_chunk(
         self,
-        chunks: list[str],
-        synthesize_chunk: Callable[[str, int, int], ChunkResult],
-    ) -> SynthesisResult:
-        """Synthesize pre-split chunks and assemble native audio and request timings."""
-        parts: list[np.ndarray] = []
-        chunk_timings: list[dict[str, object]] = []
-        wer_fallbacks = 0
-        silence_ms = self.settings.inter_chunk_silence_ms
+        request: RequestT,
+        chunk_text: str,
+        index: int,
+        num_chunks: int,
+    ) -> ChunkResult: ...
 
-        for index, chunk in enumerate(chunks):
-            wav, chunk_timing, chunk_fallbacks = synthesize_chunk(chunk, index, len(chunks))
-            wer_fallbacks += chunk_fallbacks
-            if index > 0 and silence_ms > 0:
-                parts.append(silence(self.sample_rate, silence_ms, wav.dtype))
-            parts.append(wav)
-            chunk_timings.append(chunk_timing)
-
-        return SynthesisResult(
-            audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
-            sample_rate=self.sample_rate,
-            chunks=chunks,
-            timing=RequestTiming(chunks=chunk_timings, wer_fallbacks=wer_fallbacks),
-        )
+    def finalize_request(self, request: RequestT) -> None:
+        pass
 
     @staticmethod
     def _quality_timing_fields(quality: QualityResult | None) -> dict[str, object]:
@@ -96,16 +91,80 @@ class SpeechEngine(ABC):
         return quality.timing_fields()
 
 
+class SpeechEngine[BackendT: SpeechBackend[Any]]:
+    backend: BackendT
+
+    def __init__(self, backend: BackendT) -> None:
+        self.backend = backend
+
+    @property
+    def settings(self) -> Settings:
+        return self.backend.settings
+
+    @property
+    def loaded(self) -> bool:
+        return self.backend.loaded
+
+    @property
+    def model_name(self) -> str:
+        return self.backend.model_name
+
+    @property
+    def sample_rate(self) -> int:
+        return self.backend.sample_rate
+
+    def load(self) -> None:
+        self.backend.load()
+
+    def synthesize(
+        self,
+        text: str,
+        *,
+        instructions: str | None = None,
+        speed: float | None = None,
+    ) -> SynthesisResult:
+        if not self.loaded:
+            raise RuntimeError("engine not loaded. Call load() first")
+        request = self.backend.prepare_request(instructions=instructions, speed=speed)
+        try:
+            chunks = self.backend.prepare_chunks(text)
+            if not chunks:
+                raise ValueError("cannot synthesize empty text")
+            parts: list[np.ndarray] = []
+            chunk_timings: list[dict[str, object]] = []
+            wer_fallbacks = 0
+            silence_ms = self.settings.inter_chunk_silence_ms
+
+            for index, chunk in enumerate(chunks):
+                wav, timing, fallbacks = self.backend.synthesize_chunk(
+                    request, chunk, index, len(chunks)
+                )
+                wer_fallbacks += fallbacks
+                if index > 0 and silence_ms > 0:
+                    parts.append(silence(self.sample_rate, silence_ms, wav.dtype))
+                parts.append(wav)
+                chunk_timings.append(timing)
+
+            return SynthesisResult(
+                audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
+                sample_rate=self.sample_rate,
+                chunks=chunks,
+                timing=RequestTiming(chunks=chunk_timings, wer_fallbacks=wer_fallbacks),
+            )
+        finally:
+            self.backend.finalize_request(request)
+
+
 _BACKEND_CLASSES: dict[Backend, tuple[str, str]] = {
-    "neutts": ("tinytalk.backends.neutts", "NeuTTSEngine"),
-    "tinytauk": ("tinytalk.backends.tinytauk", "TinyTAuKEngine"),
-    "omnivoice": ("tinytalk.backends.omnivoice", "OmniVoiceEngine"),
-    "chatterbox_nano": ("tinytalk.backends.chatterbox_nano", "ChatterboxNanoEngine"),
-    "silencio2": ("tinytalk.backends.silencio2", "Silencio2Engine"),
+    "neutts": ("tinytalk.backends.neutts", "NeuTTSBackend"),
+    "tinytauk": ("tinytalk.backends.tinytauk", "TinyTAuKBackend"),
+    "omnivoice": ("tinytalk.backends.omnivoice", "OmniVoiceBackend"),
+    "chatterbox_nano": ("tinytalk.backends.chatterbox_nano", "ChatterboxNanoBackend"),
+    "silencio2": ("tinytalk.backends.silencio2", "Silencio2Backend"),
 }
 
 
-def _backend_class(backend: Backend) -> type[SpeechEngine]:
+def _backend_class(backend: Backend) -> type[SpeechBackend[Any]]:
     try:
         module_name, class_name = _BACKEND_CLASSES[backend]
     except KeyError:
@@ -126,16 +185,12 @@ def _backend_class(backend: Backend) -> type[SpeechEngine]:
     return getattr(module, class_name)
 
 
-def create_engine(settings: Settings) -> SpeechEngine:
+def create_engine(settings: Settings) -> SpeechEngine[SpeechBackend[Any]]:
     # Backend ML stacks are intentionally imported lazily. This preserves clean
     # implementation boundaries even when multiple backends eventually share a
     # qualified Python/Torch environment.
-    engine_class = _backend_class(settings.backend)
-    return engine_class(settings)
+    backend_class = _backend_class(settings.backend)
+    return SpeechEngine(backend_class(settings))
 
 
-class TinyTalkEngine:
-    """Backward-compatible constructor that dispatches to ``settings.backend``."""
-
-    def __new__(cls, settings: Settings):
-        return create_engine(settings)
+TinyTalkEngine = create_engine

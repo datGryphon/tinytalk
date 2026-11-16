@@ -12,7 +12,7 @@ from huggingface_hub import snapshot_download
 
 from ..chunking import split_tagged_text
 from ..config import Settings
-from ..engine import ChunkResult, SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 
 if TYPE_CHECKING:
     from silencio2 import Silencio2TTS
@@ -38,7 +38,7 @@ def _assert_snapshot_owned(silencio2_module: ModuleType, snapshot_path: Path) ->
         ) from None
 
 
-class Silencio2Engine(SpeechEngine):
+class Silencio2Backend(SpeechBackend[SynthesisRequest]):
     tts: Silencio2TTS | None
     _emotions: tuple[str, ...]
     _sounds: tuple[str, ...]
@@ -74,17 +74,12 @@ class Silencio2Engine(SpeechEngine):
         self.loaded = True
 
     @override
-    def synthesize(
+    def prepare_request(
         self,
-        text: str,
         *,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> SynthesisResult:
-        if not self.loaded or self.tts is None:
-            raise RuntimeError("engine not loaded. Call load() first")
-        if not text or not text.strip():
-            raise ValueError("cannot synthesize empty text")
+        instructions: str | None,
+        speed: float | None,
+    ) -> SynthesisRequest:
         if instructions and instructions.strip():
             raise ValueError(
                 "silencio2 controls delivery with inline text tags, not instructions"
@@ -92,10 +87,10 @@ class Silencio2Engine(SpeechEngine):
         if speed is not None and speed != 1.0:
             raise ValueError("silencio2 supports only speed=1.0")
 
-        chunks = self._prepare_chunks(text)
-        return self._synthesize_chunks(chunks, self._synthesize_chunk)
+        return SynthesisRequest(instructions=None, speed=None)
 
-    def _prepare_chunks(self, text: str) -> list[str]:
+    @override
+    def prepare_chunks(self, text: str) -> list[str]:
         self._validate_tags(text)
         chunks = split_tagged_text(text, self.settings.max_chars_per_chunk)
         return self._carry_emotions(chunks)
@@ -120,13 +115,15 @@ class Silencio2Engine(SpeechEngine):
                 active = emotions[-1]
         return out
 
-    def _synthesize_chunk(
+    @override
+    def synthesize_chunk(
         self,
+        request: SynthesisRequest,
         chunk_text: str,
         index: int,
         num_chunks: int,
     ) -> ChunkResult:
-        if not self.loaded or self.tts is None:
+        if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
         start = time.perf_counter()

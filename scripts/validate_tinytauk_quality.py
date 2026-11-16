@@ -6,7 +6,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from tinytalk.audio import to_wav_bytes
-from tinytalk.backends.tinytauk import TinyTAuKEngine
+from tinytalk.backends.tinytauk import TinyTAuKBackend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 
 TARGET = (
@@ -29,7 +30,7 @@ def _assert_live_quality(chunk: dict, *, threshold: float) -> None:
 
 
 def _run_case(
-    engine: TinyTAuKEngine,
+    engine: SpeechEngine[TinyTAuKBackend],
     *,
     name: str,
     instructions: str | None,
@@ -41,10 +42,10 @@ def _run_case(
         wer_threshold=-1.0 if force_all_retries else threshold,
         max_retries=2,
     )
-    case_engine = TinyTAuKEngine(settings)
-    case_engine.tts = engine.tts
-    case_engine.sample_rate = engine.sample_rate
-    case_engine.loaded = True
+    case_engine = SpeechEngine(TinyTAuKBackend(settings))
+    case_engine.backend.tts = engine.backend.tts
+    case_engine.backend.sample_rate = engine.sample_rate
+    case_engine.backend.loaded = True
 
     result = case_engine.synthesize(TARGET, instructions=instructions, speed=1.0)
     assert result.timing is not None
@@ -110,7 +111,7 @@ def main() -> None:
     )
 
     print("Loading TinyTAuK once...")
-    engine = TinyTAuKEngine(settings)
+    engine = SpeechEngine(TinyTAuKBackend(settings))
     engine.load()
 
     records = [

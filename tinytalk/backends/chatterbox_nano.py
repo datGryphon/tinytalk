@@ -8,10 +8,10 @@ from chatterbox.tts_turbo import ChatterboxTurboTTS
 
 from ..chunking import split_tagged_text
 from ..config import Settings
-from ..engine import ChunkResult, SpeechEngine, SynthesisResult
+from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 
 
-class ChatterboxNanoEngine(SpeechEngine):
+class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
     tts: ChatterboxTurboTTS | None
 
     def __init__(self, settings: Settings) -> None:
@@ -34,26 +34,26 @@ class ChatterboxNanoEngine(SpeechEngine):
         self.loaded = True
 
     @override
-    def synthesize(
+    def prepare_request(
         self,
-        text: str,
         *,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> SynthesisResult:
-        if not self.loaded:
-            raise RuntimeError("engine not loaded. Call load() first")
+        instructions: str | None,
+        speed: float | None,
+    ) -> SynthesisRequest:
         if instructions and instructions.strip():
             raise ValueError("Chatterbox Nano uses native tags in input, not instructions")
         if speed is not None and speed != 1.0:
             raise ValueError("Chatterbox Nano supports only speed=1.0")
-        if not text.strip():
-            raise ValueError("cannot synthesize empty text")
-        chunks = split_tagged_text(text, self.settings.max_chars_per_chunk)
-        return self._synthesize_chunks(chunks, self._synthesize_chunk)
+        return SynthesisRequest(instructions=None, speed=None)
 
-    def _synthesize_chunk(
+    @override
+    def prepare_chunks(self, text: str) -> list[str]:
+        return split_tagged_text(text, self.settings.max_chars_per_chunk)
+
+    @override
+    def synthesize_chunk(
         self,
+        request: SynthesisRequest,
         chunk_text: str,
         index: int,
         num_chunks: int,

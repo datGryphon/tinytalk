@@ -21,7 +21,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from tinytalk.audio import to_wav_bytes
-from tinytalk.backends.neutts import NeuTTSEngine
+from tinytalk.backends.neutts import NeuTTSBackend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import load_settings
 from tinytalk.wer import transcribe_chunk, word_error_rate
 
@@ -86,7 +87,7 @@ def main() -> None:
     product_args = [field_values[fn] for fn, _, _ in sweep_fields]
     combos = list(itertools.product(*product_args))
 
-    engine = NeuTTSEngine(base_settings)
+    engine = SpeechEngine(NeuTTSBackend(base_settings))
     engine.load()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -96,7 +97,7 @@ def main() -> None:
 
     for combo in combos:
         combo_dict = dict(zip([fn for fn, _, _ in sweep_fields], combo))
-        engine.settings = replace(engine.settings, **combo_dict)
+        engine.backend.settings = replace(engine.settings, **combo_dict)
 
         human_parts = [f"{k}={v}" for k, v in combo_dict.items()]
         print(f"{' | '.join(human_parts)}")
