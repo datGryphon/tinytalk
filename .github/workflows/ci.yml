@@ -33,80 +33,42 @@ jobs:
           git diff --exit-code -- uv.lock
 
   native:
-    name: Native Ubuntu / ${{ matrix.label }}
+    name: Native Ubuntu / Shared runtime
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - backend: neutts
-            label: NeuTTS
-            pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
-          - backend: omnivoice
-            label: OmniVoice
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
-          - backend: chatterbox_nano
-            label: Chatterbox Nano
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_chatterbox_nano_backend.py","tests/test_config.py","tests/test_backend_api.py","-q"]'
-          - backend: silencio2
-            label: Silencio-2
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_silencio2_backend.py","tests/test_config.py","tests/test_backend_api.py","-q"]'
-          - backend: tinytauk
-            label: TinyTAuK
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
-
+    timeout-minutes: 60
     env:
-      TINYTALK_BACKEND: ${{ matrix.backend }}
+      TINYTALK_BACKEND: neutts
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up native backend
-        id: setup
-        uses: ./.github/actions/setup-native
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          extras: '["${{ matrix.backend }}","test"]'
+          version: '0.12.17'
+          enable-cache: false
 
-      - name: Run backend tests and runtime contract
-        uses: ./.github/actions/run-check
-        with:
-          executable: ${{ steps.setup.outputs.python-path }}
-          arguments: ${{ matrix.pytest-arguments }}
+      - name: Install system audio dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng libsndfile1
+
+      - name: Sync all backends
+        run: uv sync --frozen --all-extras --python 3.13
+
+      - name: Verify installation outside the checkout
+        run: .venv/bin/python -I -c 'import importlib.metadata as m, tinytalk; assert m.version("tinytalk") == tinytalk.__version__'
+
+      - name: Run all backend and shared tests
+        run: .venv/bin/python -m pytest tests --ignore=tests/integration -q
 
   nix:
-    name: Nix / ${{ matrix.label }}
+    name: Nix / Shared runtime
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - backend: neutts
-            label: NeuTTS
-            shell: neutts
-            pytest-arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
-          - backend: omnivoice
-            label: OmniVoice
-            shell: omnivoice
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
-          - backend: chatterbox_nano
-            label: Chatterbox Nano
-            shell: chatterbox_nano
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_chatterbox_nano_backend.py","tests/test_config.py","tests/test_backend_api.py","-q"]'
-          - backend: silencio2
-            label: Silencio-2
-            shell: silencio2
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_silencio2_backend.py","tests/test_config.py","tests/test_backend_api.py","-q"]'
-          - backend: tinytauk
-            label: TinyTAuK
-            shell: tinytauk
-            pytest-arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
-
     env:
-      TINYTALK_BACKEND: ${{ matrix.backend }}
+      TINYTALK_BACKEND: neutts
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -116,15 +78,10 @@ jobs:
       - uses: cachix/install-nix-action@v31
 
       - name: Check flake and NixOS module
-        if: matrix.backend == 'neutts'
         run: nix flake check
 
-      - name: Run backend tests and runtime contract
-        uses: ./.github/actions/run-check
-        with:
-          executable: python
-          arguments: ${{ matrix.pytest-arguments }}
-          nix-shell: ${{ matrix.shell }}
+      - name: Run all backend and shared tests
+        run: nix develop -c python -m pytest tests --ignore=tests/integration -q
 
   nix-upgrade:
     name: Nix upgrade / NeuTTS environment
@@ -148,52 +105,6 @@ jobs:
       - name: Exercise upgrade from previous release
         run: tests/ci/test_nix_upgrade.sh
 
-  shared:
-    name: Native Ubuntu / Shared runtime
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up shared native runtime
-        id: setup
-        uses: ./.github/actions/setup-native
-        with:
-          extras: '["neutts","omnivoice","tinytauk","test"]'
-
-      - name: Verify TinyTalk is importable outside the checkout
-        uses: ./.github/actions/run-check
-        with:
-          executable: ${{ steps.setup.outputs.python-path }}
-          arguments: '["-I","-c","import importlib.metadata as m, tinytalk; assert m.version(\"tinytalk\") == tinytalk.__version__"]'
-
-      - name: Run NeuTTS tests and runtime contract
-        uses: ./.github/actions/run-check
-        env:
-          TINYTALK_BACKEND: neutts
-        with:
-          executable: ${{ steps.setup.outputs.python-path }}
-          arguments: '["-m","pytest","tests","--ignore=tests/integration","-q"]'
-
-      - name: Run OmniVoice tests and runtime contract
-        uses: ./.github/actions/run-check
-        env:
-          TINYTALK_BACKEND: omnivoice
-        with:
-          executable: ${{ steps.setup.outputs.python-path }}
-          arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_omnivoice_backend.py","tests/test_backend_api.py","-q"]'
-
-      - name: Run TinyTAuK tests and runtime contract
-        uses: ./.github/actions/run-check
-        env:
-          TINYTALK_BACKEND: tinytauk
-        with:
-          executable: ${{ steps.setup.outputs.python-path }}
-          arguments: '["-m","pytest","tests/ci/test_runtime.py","tests/test_tinytauk_backend.py","tests/test_backend_api.py","-q"]'
-
   release:
     name: Python Semantic Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -202,7 +113,6 @@ jobs:
       - native
       - nix
       - nix-upgrade
-      - shared
     permissions:
       contents: write
     runs-on: ubuntu-24.04

@@ -65,6 +65,11 @@ assert lib.assertMsg (
   && lib.hasInfix "cuda-merged" neuttsCuda.environment.CUDA_HOME
   && lib.elem pkgs.cudaPackages_12.cudatoolkit neuttsCuda.path
   && neutts.environment.UV_CACHE_DIR != neuttsGpu.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR != neuttsCuda.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR == omnivoice.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR == tinytauk.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR == silencio2.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR == chatterboxNano.environment.UV_CACHE_DIR
   && lib.elem pkgs.glslang neuttsGpu.path
 ) "TinyTalk must isolate native wheel caches by NeuTTS acceleration backend";
 

@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-pytest.importorskip("neutts")
-
 from tinytalk.config import Settings
 from tinytalk.backends.neutts import NeuTTSBackend
 from tinytalk.engine import SpeechEngine

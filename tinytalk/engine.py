@@ -186,9 +186,7 @@ def _backend_class(backend: Backend) -> type[SpeechBackend[Any]]:
 
 
 def create_engine(settings: Settings) -> SpeechEngine[SpeechBackend[Any]]:
-    # Backend ML stacks are intentionally imported lazily. This preserves clean
-    # implementation boundaries even when multiple backends eventually share a
-    # qualified Python/Torch environment.
+    # Lazy imports allow a minimal service installation with only its backend extra.
     backend_class = _backend_class(settings.backend)
     return SpeechEngine(backend_class(settings))
 

@@ -4,8 +4,6 @@ import numpy as np
 import pytest
 import torch
 
-pytest.importorskip("tinytauk")
-
 from tinytauk.types import Conditioning, GenerationResult
 
 from tinytalk.backends import tinytauk as backend_module

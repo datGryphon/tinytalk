@@ -340,8 +340,8 @@ let
       ]
     );
     HOME = "/var/lib/tinytalk";
-    # Keep the compiled native wheel variants separate in the persistent uv cache.
-    UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv/${if neutts then "neutts-${cfg.llamaCppBackend}" else cfg.backend}";
+    # Share the CPU cache across backends; isolate only native GPU wheel variants.
+    UV_CACHE_DIR = "/var/lib/tinytalk/.cache/uv/${if vulkan || cuda then "neutts-${cfg.llamaCppBackend}" else "cpu"}";
     TINYTALK_LLAMA_CPP_BACKEND = if neutts then cfg.llamaCppBackend else "none";
   };
 in

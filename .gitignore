@@ -2,11 +2,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
-.venv-neutts/
-.venv-omnivoice/
-.venv-tinytauk/
-.venv-silencio2/
+.venv-*/
 *.egg-info/
 test_artifacts/
-
-.venv-chatterbox-nano/

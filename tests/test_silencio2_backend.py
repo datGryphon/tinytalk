@@ -4,8 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-torch = pytest.importorskip("torch")
-pytest.importorskip("huggingface_hub")
+import torch
 
 from tinytalk.backends import silencio2 as backend
 from tinytalk.engine import SpeechEngine

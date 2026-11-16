@@ -4,8 +4,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-pytest.importorskip("omnivoice")
-
 from tinytalk.backends import omnivoice as omnivoice_backend
 from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings

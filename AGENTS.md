@@ -23,33 +23,17 @@ as `nixosModules.default`.
 
 ## Setup
 
-All current development shells target Python 3.13. Backend extras remain
-separate while Torch/Transformers compatibility is qualified.
-
-NeuTTS/default environment:
+One Python 3.13 development shell and `.venv` contain all backend extras and
+tests using the shared locked dependency stack.
 
 ```bash
 nix develop
-pytest
+pytest tests --ignore=tests/integration
 ```
 
-TinyTAuK environment:
-
-```bash
-nix develop .#tinytauk
-pytest
-```
-
-OmniVoice environment:
-
-```bash
-nix develop .#omnivoice
-pytest tests/test_quality.py tests/test_backend_api.py tests/test_config.py tests/test_omnivoice_backend.py
-```
-
-Do not assume separate virtual environments are a permanent architecture
-requirement. Keep backend code and optional dependencies isolated, but prefer a
-common Python/Torch/Transformers stack when real validation proves it works.
+Use `TINYTALK_BACKEND` to select a resident model without changing environments.
+Keep the same dependency graph in development, CI and deployment. Optional
+extras allow minimal service installations without compiling unused runtimes.
 
 ## Conventions
 
@@ -57,8 +41,8 @@ Keep the project simple and direct. Do not add speculative abstractions or
 feature flags unrelated to real backend differences.
 
 - Runtime dependencies shared by every backend stay in `[project].dependencies`.
-  Backend-specific ML stacks belong in the `neutts`, `tinytauk`, and `omnivoice`
-  extras.
+  Backend-specific packages belong in their respective extras, all resolved
+  against the same lockfile.
 - Backend implementations remain separate modules even when their dependency
   versions converge. Environment alignment and code ownership are different
   concerns.
@@ -121,9 +105,8 @@ feature flags unrelated to real backend differences.
 
 ## Commands
 
-- NeuTTS unit tests: `nix develop -c pytest`
-- TinyTAuK unit tests: `nix develop .#tinytauk -c pytest`
-- OmniVoice focused tests: `nix develop .#omnivoice -c pytest tests/test_quality.py tests/test_backend_api.py tests/test_config.py tests/test_omnivoice_backend.py`
+- All unit tests: `nix develop -c pytest tests --ignore=tests/integration`
+- Focused tests: run the corresponding test file in the same shell.
 - NeuTTS real integration: `TINYTALK_RUN_INTEGRATION=1 pytest tests/integration/test_real_speech.py`
 - TinyTAuK real integration: `TINYTALK_RUN_TINYTAUK_INTEGRATION=1 pytest tests/integration/test_tinytauk_real_speech.py`
 - OmniVoice real integration: `TINYTALK_RUN_OMNIVOICE_INTEGRATION=1 pytest tests/integration/test_omnivoice_real_speech.py`
@@ -284,8 +267,7 @@ upstream conditioning. Both new backends use the shared Python 3.13 / Torch 2.11
 Transformers 5.17 stack. Nano additionally needs the existing Perth 1.0.1 and
 Safetensors >=0.8 overrides rather than upstream's incompatible metadata pins.
 
-Use `nix develop .#silencio2` or `nix develop .#chatterbox_nano`. Each backend has
-independent native/Nix CI jobs. Real HTTP qualification is opt-in:
+Both are covered by the shared native/Nix CI jobs. Real HTTP qualification is opt-in:
 `TINYTALK_RUN_EXPRESSIVE_INTEGRATION=<backend>` and external
 `TINYTALK_TEST_REF_AUDIO`, running `tests/integration/test_expressive_real_speech.py`.
 Keep test artifacts outside Git. These backends do not run quality retries;

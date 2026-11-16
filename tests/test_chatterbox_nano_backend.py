@@ -1,8 +1,7 @@
 import numpy as np
 import pytest
 
-torch = pytest.importorskip("torch")
-pytest.importorskip("chatterbox")
+import torch
 
 from tinytalk.backends import chatterbox_nano as backend
 from tinytalk.engine import SpeechEngine

@@ -40,18 +40,18 @@ runtime. The project pins the qualified Torch/Torchaudio/Transformers versions,
 the PyTorch CPU index, the NeuCodec fork, and backend package versions once.
 Development, CI, and the NixOS service all consume that same lock.
 
-From a source checkout, sync only the backend you need:
+From a source checkout, install the shared development environment:
 
 ```bash
-uv sync --frozen --extra neutts
-uv sync --frozen --extra tinytauk
-uv sync --frozen --extra omnivoice
+uv sync --frozen --all-extras
 ```
 
-For development, add the `test` extra. To validate coexistence of all three
-backends, select all three extras in the same sync.
+All five backends and the tests coexist in one `.venv`. Select the resident
+backend with `TINYTALK_BACKEND` (default `neutts`); changing it does not require
+another development environment.
 
-The base `tinytalk` project remains backend-light. Backend imports are lazy, so
+For minimal deployments, the NixOS service installs only the selected backend's
+extra into its single persistent `.venv`. Backend imports are lazy, so
 selecting a backend whose extra is not installed fails with an actionable error.
 Plain `pip install 'tinytalk[backend]'` does not consume uv's project-level
 metadata overrides and is therefore not the qualified installation path while
@@ -278,30 +278,13 @@ tags `vX.Y.Z`, and creates the GitHub release. PyPI publishing is not configured
 
 ## Development
 
-All shells use Python 3.13 and run `uv sync --frozen` against the checked-in
-lock. They retain separate virtual environments for backend-aware tests; CI also
-checks that all three backends can be synced and tested together from the same
-locked dependency graph.
-
-NeuTTS/default environment:
+The development shell uses Python 3.13 and syncs all five backends and tests
+into one `.venv` from the checked-in lock. Native and Nix CI each run the full
+unit suite once in that combined environment.
 
 ```bash
 nix develop
-pytest
-```
-
-TinyTAuK environment:
-
-```bash
-nix develop .#tinytauk
-pytest
-```
-
-OmniVoice environment:
-
-```bash
-nix develop .#omnivoice
-pytest tests/test_quality.py tests/test_backend_api.py tests/test_config.py tests/test_omnivoice_backend.py
+pytest tests --ignore=tests/integration
 ```
 
 Real NeuTTS integration:
@@ -329,8 +312,7 @@ WER/CER transcription path also needs validation. Artifacts are written under
 `test_artifacts/`.
 ## Silencio-2 CPU Backend
 
-Select `TINYTALK_BACKEND=silencio2` and install with
-`uv sync --frozen --extra silencio2 --extra test` (or `nix develop .#silencio2`).
+Select `TINYTALK_BACKEND=silencio2` in the shared environment.
 `TINYTALK_SILENCIO2_VOICE` selects an upstream bundled ID (default `260`) or a
 local reference-audio path. NixOS exposes `services.tinytalk.silencio2Voice`.
 The configured voice is encoded at startup and reused; HTTP `voice` is ignored.
@@ -357,9 +339,7 @@ MIT. Retain upstream attribution and notices when redistributing model assets:
 
 ## Chatterbox Nano CPU Backend
 
-Select `TINYTALK_BACKEND=chatterbox_nano` and install with
-`uv sync --frozen --extra chatterbox_nano --extra test`, or use
-`nix develop .#chatterbox_nano`. The optional
+Select `TINYTALK_BACKEND=chatterbox_nano` in the shared environment. The optional
 `TINYTALK_CHATTERBOX_NANO_REF_AUDIO` (`services.tinytalk.chatterboxNanoRefAudio`)
 selects a local reference clip longer than five seconds. With no reference,
 upstream's bundled conditioning is used. HTTP `voice` is ignored.
