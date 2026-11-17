@@ -52,20 +52,17 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
                 ref_text=ref_text,
             )
 
-        if self.settings.voices_file is not None:
-            voices = self.voices
-            if voices is not None:
-                for preset in voices.voices.values():
-                    if preset.ref_audio is None or preset.ref_text is None:
-                        raise ValueError("OmniVoice voice requires reference audio and transcript")
-                    if not preset.ref_audio.is_file() or not preset.ref_text.is_file():
-                        raise ValueError("OmniVoice named reference file does not exist")
-                    transcript = preset.ref_text.read_text(encoding="utf-8").strip()
-                    if not transcript:
-                        raise ValueError("OmniVoice reference transcript is empty")
-                    self.voice_prompts[preset.ref_audio] = self.tts.create_voice_clone_prompt(
-                        ref_audio=str(preset.ref_audio), ref_text=transcript
-                    )
+        if self.voices is not None:
+            for preset in self.voices.voices.values():
+                assert preset.ref_audio is not None and preset.ref_text is not None
+                if not preset.ref_audio.is_file() or not preset.ref_text.is_file():
+                    raise ValueError("OmniVoice named reference file does not exist")
+                transcript = preset.ref_text.read_text(encoding="utf-8").strip()
+                if not transcript:
+                    raise ValueError("OmniVoice reference transcript is empty")
+                self.voice_prompts[preset.ref_audio] = self.tts.create_voice_clone_prompt(
+                    ref_audio=str(preset.ref_audio), ref_text=transcript
+                )
 
         self.loaded = True
 
