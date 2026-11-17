@@ -47,12 +47,14 @@ class SpeechBackend[RequestT: SynthesisRequest](ABC):
     model_name: str
     sample_rate: int
     loaded: bool
+    voices: VoiceConfig | None
 
     def __init__(self, settings: Settings, model_name: str) -> None:
         self.settings = settings
         self.model_name = model_name
         self.sample_rate = 24_000
         self.loaded = False
+        self.voices = load_voice_config(settings)
 
     @abstractmethod
     def load(self) -> None: ...
@@ -66,7 +68,8 @@ class SpeechBackend[RequestT: SynthesisRequest](ABC):
     ) -> RequestT: ...
 
     def prepare_chunks(self, text: str, max_chars_per_chunk: int | None = None) -> list[str]:
-        return split_text(text, max_chars_per_chunk or self.settings.max_chars_per_chunk)
+        limit = max_chars_per_chunk or self.settings.max_chars_per_chunk
+        return split_text(text, limit)
 
     @abstractmethod
     def synthesize_chunk(
@@ -87,7 +90,7 @@ class SpeechEngine[RequestT: SynthesisRequest]:
 
     def __init__(self, backend: SpeechBackend[RequestT]) -> None:
         self.backend = backend
-        self.voices = load_voice_config(backend.settings)
+        self.voices = backend.voices
 
     @property
     def settings(self) -> Settings:
@@ -132,11 +135,7 @@ class SpeechEngine[RequestT: SynthesisRequest]:
         request.voice = preset
         try:
             max_chars = preset.max_chars_per_chunk if preset else None
-            chunks = (
-                self.backend.prepare_chunks(text, max_chars)
-                if max_chars is not None
-                else self.backend.prepare_chunks(text)
-            )
+            chunks = self.backend.prepare_chunks(text, max_chars)
             if not chunks:
                 raise ValueError("cannot synthesize empty text")
             parts: list[AudioSamples] = []
