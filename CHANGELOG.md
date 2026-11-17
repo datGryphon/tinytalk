@@ -2,6 +2,171 @@
 
 <!-- version list -->
 
+## v0.2.0 (2026-11-17)
+
+### Bug Fixes
+
+- Omit request text from expressive backend telemetry
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Preserve legacy chunk preparation call without overrides
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Retain legacy API engine call when no named voices configured
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Retain legacy NeuTTS chunk invocation without named preset
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+### Documentation
+
+- Align named voice design status with implementation
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Describe named voice API and NixOS setup ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Remove branch-specific implementation status from design document
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Scope named voices to a single resident backend
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+### Features
+
+- Add Chatterbox Nano on the shared CPU runtime
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Add resident Silencio-2 expressive CPU backend
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Add Silencio-2 and Chatterbox Nano with shared synthesis
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Emit declarative NixOS named voice configuration
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Honor speech API voice selection and reject unknown names
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Preload and select OmniVoice clone prompts ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Preload and select Silencio-2 voice IDs ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Preload NeuTTS named reference conditioning
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Resolve named voices in existing synthesis lifecycle
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Reuse upstream Chatterbox Nano conditioning for named voices
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Static named voice presets for shared synthesis engine
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Support named TinyTAuK voice descriptions ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Validate static named voice presets with Pydantic
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+### Refactoring
+
+- Compose speech engine with backend strategies
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Consolidate backend development and CI environments
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Declare typed engine state and align adapter contracts
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Define concrete synthesis and telemetry types
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Flatten Chatterbox Nano conditioning preparation
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Flatten NeuTTS voice preload and rely on validated presets
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Flatten OmniVoice reference preparation ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Flatten Silencio-2 voice preload ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Keep voice configuration imports at module scope
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Load voice config once in backend and simplify synthesis path
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Make speech engines inherit shared synthesis
+  ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Model synthesis data with Pydantic ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Rebuild named voice configuration and request lifecycle
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Reuse validated voice configuration instead of reloading JSON
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Share chunk synthesis and assembly ([#14](https://github.com/datGryphon/tinytalk/pull/14),
+  [`a2f4b1f`](https://github.com/datGryphon/tinytalk/commit/a2f4b1f7acd890baa4cc8fd70e68cd49774b7d80))
+
+- Simplify voice preset validation into required/allowed field checks
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Use direct typed voice selection rather than dynamic keyword branching
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+### Testing
+
+- Exercise voice validation, defaults and request isolation
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+- Verify named voice API selection and rejection
+  ([#15](https://github.com/datGryphon/tinytalk/pull/15),
+  [`d0ed159`](https://github.com/datGryphon/tinytalk/commit/d0ed1590e4568fea8ce0f826f458ba00fb276041))
+
+
 ## v0.1.3 (2026-10-12)
 
 ### Bug Fixes
