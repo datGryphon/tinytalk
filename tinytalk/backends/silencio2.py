@@ -9,7 +9,7 @@ import numpy as np
 from huggingface_hub import snapshot_download
 
 from ..chunking import split_tagged_text
-from ..config import Settings, load_voice_config
+from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..timing import ChunkTiming
 
@@ -56,7 +56,7 @@ class Silencio2Backend(SpeechBackend[SynthesisRequest]):
         if self.settings.voices_file is None:
             self.tts.voice(self.settings.silencio2_voice)
         else:
-            voices = load_voice_config(self.settings)
+            voices = self.voices
             if voices is not None:
                 for preset in voices.voices.values():
                     if preset.voice_id is not None:
