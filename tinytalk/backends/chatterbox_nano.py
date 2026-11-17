@@ -8,7 +8,7 @@ import numpy as np
 from chatterbox.tts_turbo import ChatterboxTurboTTS, Conditionals
 
 from ..chunking import split_tagged_text
-from ..config import Settings, load_voice_config
+from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..timing import ChunkTiming
 
@@ -37,7 +37,7 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
             model.prepare_conditionals(str(reference), exaggeration=0.0, norm_loudness=False)
         self.default_conditionals = model.conds
         if self.settings.voices_file is not None:
-            voices = load_voice_config(self.settings)
+            voices = self.voices
             if voices is not None:
                 for preset in voices.voices.values():
                     if preset.ref_audio is None or not preset.ref_audio.is_file():
