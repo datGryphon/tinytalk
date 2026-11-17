@@ -36,18 +36,17 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
             # Preserve reference level and avoid upstream's normalization dtype promotion.
             model.prepare_conditionals(str(reference), exaggeration=0.0, norm_loudness=False)
         self.default_conditionals = model.conds
-        if self.settings.voices_file is not None:
-            voices = self.voices
-            if voices is not None:
-                for preset in voices.voices.values():
-                    if preset.ref_audio is None or not preset.ref_audio.is_file():
-                        raise ValueError("Chatterbox Nano named reference audio does not exist")
-                    model.prepare_conditionals(
-                        str(preset.ref_audio), exaggeration=0.0, norm_loudness=False
-                    )
-                    if model.conds is None:
-                        raise RuntimeError("Chatterbox Nano did not prepare conditioning")
-                    self.voice_conditionals[preset.ref_audio] = model.conds
+        if self.voices is not None:
+            for preset in self.voices.voices.values():
+                assert preset.ref_audio is not None
+                if not preset.ref_audio.is_file():
+                    raise ValueError("Chatterbox Nano named reference audio does not exist")
+                model.prepare_conditionals(
+                    str(preset.ref_audio), exaggeration=0.0, norm_loudness=False
+                )
+                if model.conds is None:
+                    raise RuntimeError("Chatterbox Nano did not prepare conditioning")
+                self.voice_conditionals[preset.ref_audio] = model.conds
             model.conds = self.default_conditionals
         self.tts = model
         self.sample_rate = int(model.sr)
@@ -95,5 +94,5 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
 
     @override
     def finalize_request(self, request: SynthesisRequest) -> None:
-        if self.tts is not None and self.settings.voices_file is not None:
+        if self.tts is not None and self.voices is not None:
             self.tts.conds = self.default_conditionals
