@@ -1,4 +1,4 @@
-# Named voices — implementation design
+# Named voices — design and verification criteria
 
 ## Ownership
 
@@ -14,8 +14,7 @@ Voice presets should expose native controls only: NeuTTS reference codes plus tr
 
 Resolve the existing speech API `voice` field, pass a typed preset into `SpeechEngine.synthesize`, and preserve backend `prepare_request`/`synthesize_chunk`/`finalize_request`. Load the model once. Prepare configured reference conditioning at startup where upstream requires it. Keep NeuTTS F0 state per request. For mutable upstream conditioning (particularly Chatterbox Nano), confirm the pinned API and select within the existing inference lock rather than creating multiple models. Keep TinyTAuK text-dependent conditioning at request time.
 
-## Required verification before implementation is complete
+## Verification criteria
 
 Validate default and unknown voice behavior, per-backend reference requirements, reference preparation, per-request chunk/cadence isolation, API response behavior, and Nix-generated config. Run focused tests and full shared tests; do not equate mocked tests with actual model inference. No new service, router, caching framework, benchmarks, or unrelated cleanup.
 
-Implementation is included in this branch. Automated CI and real model inference remain unverified until their respective runs complete.
