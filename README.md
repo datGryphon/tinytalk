@@ -68,8 +68,10 @@ POST /v1/audio/speech
 ```
 
 `/v1/audio/speech` accepts OpenAI-style JSON. `response_format` may be `wav`
-(default), `mp3`, or `opus` (returned as Ogg-Opus). `model` and `voice` are
-accepted but currently ignored. `stream: true` is rejected. Long inputs are
+(default), `mp3`, or `opus` (returned as Ogg-Opus). `model` is accepted but currently ignored. With named voices configured,
+`voice` selects a preset; when omitted the configured default is used. Unknown
+voice names return HTTP 400. Without named voices, `voice` retains its legacy
+ignored behavior. `stream: true` is rejected. Long inputs are
 chunked at sentence/phrase boundaries server-side.
 
 Backend-specific controls:
@@ -112,6 +114,64 @@ behavior.
 
 Response headers include `X-TinyTalk-Backend`, `X-TinyTalk-Model`,
 `X-TinyTalk-Chunks`, `X-TinyTalk-Chunk-Chars`, and `X-TinyTalk-Format`.
+
+## Named voices
+
+A service still loads one backend/model. Named voices select static conditioning
+for that backend, not a different model. Define `TINYTALK_VOICES_FILE` as a
+path to a JSON file, or use the NixOS module options below. The file is validated
+at startup. The backend must match `TINYTALK_BACKEND`, and `default` must name
+one of the configured voices.
+
+Example for TinyTAuK:
+
+```json
+{
+  "backend": "tinytauk",
+  "default": "narrator",
+  "voices": {
+    "narrator": {"description": "A clear, natural speaking voice"},
+    "dramatic": {
+      "description": "A dramatic, expressive voice",
+      "max_chars_per_chunk": 120,
+      "inter_chunk_silence_ms": 100
+    }
+  }
+}
+```
+
+The equivalent NixOS configuration:
+
+```nix
+services.tinytalk = {
+  enable = true;
+  backend = "tinytauk";
+  defaultVoice = "narrator";
+  voices = {
+    narrator.description = "A clear, natural speaking voice";
+    dramatic = {
+      description = "A dramatic, expressive voice";
+      maxCharsPerChunk = 120;
+      interChunkSilenceMs = 100;
+    };
+  };
+};
+```
+
+Supported preset fields depend on the backend:
+
+- NeuTTS: `ref_codes` and `ref_text` (both required).
+- OmniVoice: `ref_audio` and `ref_text` (both required).
+- Silencio-2: `voice_id` (bundled ID or reference-audio path).
+- Chatterbox Nano: `ref_audio` (required).
+- TinyTAuK: `description` (optional; request `instructions` take precedence).
+
+All backends support optional `max_chars_per_chunk` and
+`inter_chunk_silence_ms` per voice. Nix uses camelCase names as in the
+example. Reference files must be readable by the `tinytalk` service user.
+The JSON configuration contains reference *paths*, not the audio contents.
+Model loading remains single-instance; reference conditioning is prepared at
+startup where supported. No runtime enrollment is provided.
 
 ## NixOS module
 
