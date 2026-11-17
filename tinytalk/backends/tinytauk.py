@@ -79,7 +79,9 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
-        instructions = request.instructions
+        instructions = request.instructions or (
+            request.voice.description if request.voice is not None else None
+        )
         speed = request.speed if request.speed is not None else 1.0
         description = self._description(instructions)
         base_duration = self._duration_seconds(chunk_text, speed)
