@@ -53,14 +53,12 @@ class Silencio2Backend(SpeechBackend[SynthesisRequest]):
         self.tts = silencio2.Silencio2TTS.from_pretrained(snapshot, device="cpu")
         self.sample_rate = int(self.tts.sample_rate)
 
-        if self.settings.voices_file is None:
+        if self.voices is None:
             self.tts.voice(self.settings.silencio2_voice)
         else:
-            voices = self.voices
-            if voices is not None:
-                for preset in voices.voices.values():
-                    if preset.voice_id is not None:
-                        self.tts.voice(preset.voice_id)
+            for preset in self.voices.voices.values():
+                assert preset.voice_id is not None
+                self.tts.voice(preset.voice_id)
         self.loaded = True
 
     @override
