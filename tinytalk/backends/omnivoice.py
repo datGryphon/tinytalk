@@ -10,7 +10,7 @@ from omnivoice.models.omnivoice import OmniVoice, VoiceClonePrompt
 
 from .. import engine as engine_module
 from ..audio import AudioArray, AudioSamples, edge_fade, peak_limit, trim_edge_silence
-from ..config import Settings, load_voice_config
+from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, VoiceMode
@@ -53,7 +53,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
             )
 
         if self.settings.voices_file is not None:
-            voices = load_voice_config(self.settings)
+            voices = self.voices
             if voices is not None:
                 for preset in voices.voices.values():
                     if preset.ref_audio is None or preset.ref_text is None:
