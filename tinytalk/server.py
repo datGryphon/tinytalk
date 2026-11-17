@@ -75,10 +75,11 @@ async def health() -> Response:
 
 @app.post("/v1/audio/speech")
 async def create_speech(payload: SpeechRequest) -> Response:
-    try:
-        engine.resolve_voice(payload.voice)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if getattr(engine, "voices", None) is not None:
+        try:
+            engine.resolve_voice(payload.voice)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     request_start = time.perf_counter()
     result: SynthesisResult | None = None
     try:
@@ -88,7 +89,7 @@ async def create_speech(payload: SpeechRequest) -> Response:
                 payload.input,
                 instructions=payload.instructions,
                 speed=payload.speed,
-                voice=payload.voice,
+                **({"voice": payload.voice} if getattr(engine, "voices", None) is not None else {}),
             )
         wav = to_wav_bytes(result.audio, result.sample_rate)
         body, media_type = await run_in_threadpool(encode_audio, wav, payload.response_format)
