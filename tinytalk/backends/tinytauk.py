@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import json
 import time
+from typing import override
 
 import numpy as np
 from tinytauk import TinyTAuK
 
 from .. import engine as engine_module
-from ..audio import edge_fade, peak_limit, silence, trim_edge_silence
-from ..chunking import split_text
+from ..audio import AudioSamples, edge_fade, peak_limit, trim_edge_silence
 from ..config import Settings
-from ..engine import RequestTiming, SynthesisResult
+from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
+from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, QualityTiming
 
 _DEFAULT_DESCRIPTION = "A clear, natural speaking voice"
 _PROMPT_SCAFFOLD = "Based on the following description, generate speech content."
@@ -26,24 +27,15 @@ _DURATION_MIN_FACTOR = 0.75
 _DURATION_MAX_FACTOR = 1.25
 
 
-class TinyTAuKEngine:
-    settings: Settings
+class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
     tts: TinyTAuK | None
-    sample_rate: int
-    loaded: bool
-    model_name: str
 
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+        super().__init__(settings, settings.tinytauk_model)
         self.tts = None
-        self.sample_rate = 24_000
-        self.loaded = False
-        self.model_name = settings.tinytauk_model
 
+    @override
     def load(self) -> None:
-        if self.settings.tinytauk_chars_per_second <= 0:
-            raise ValueError("TINYTALK_TINYTAUK_CHARS_PER_SECOND must be positive")
-
         if self.settings.tinytauk_profile is not None:
             self.tts = TinyTAuK.from_config(self.settings.tinytauk_profile)
             self.model_name = self.tts.config.model.model_id
@@ -63,68 +55,32 @@ class TinyTAuKEngine:
         self.sample_rate = int(warmup.sample_rate)
         self.loaded = True
 
-    def synthesize(
+    @override
+    def prepare_request(
         self,
-        text: str,
         *,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> SynthesisResult:
-        if self.tts is None:
-            raise RuntimeError("engine not loaded. Call load() first")
-
+        instructions: str | None,
+        speed: float | None,
+    ) -> SynthesisRequest:
         speed_value = 1.0 if speed is None else speed
         if speed_value <= 0:
             raise ValueError("speed must be positive")
 
-        chunks = split_text(text, self.settings.max_chars_per_chunk)
-        parts: list[np.ndarray] = []
-        chunk_timings: list[dict] = []
-        wer_fallbacks = 0
+        return SynthesisRequest(instructions=instructions, speed=speed_value)
 
-        for index, chunk in enumerate(chunks):
-            wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
-                chunk,
-                index=index,
-                num_chunks=len(chunks),
-                instructions=instructions,
-                speed=speed_value,
-            )
-            wer_fallbacks += chunk_fallbacks
-
-            if index > 0 and self.settings.inter_chunk_silence_ms > 0:
-                parts.append(
-                    silence(
-                        self.sample_rate,
-                        self.settings.inter_chunk_silence_ms,
-                        wav.dtype,
-                    )
-                )
-            parts.append(wav)
-            chunk_timings.append(chunk_timing)
-
-        return SynthesisResult(
-            audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
-            sample_rate=self.sample_rate,
-            chunks=chunks,
-            timing=RequestTiming(
-                chunks=chunk_timings,
-                wer_fallbacks=wer_fallbacks,
-            ),
-        )
-
-    def _synthesize_chunk(
+    @override
+    def synthesize_chunk(
         self,
+        request: SynthesisRequest,
         chunk_text: str,
-        *,
         index: int,
         num_chunks: int,
-        instructions: str | None,
-        speed: float,
-    ) -> tuple[np.ndarray, dict, int]:
+    ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
+        instructions = request.instructions
+        speed = request.speed if request.speed is not None else 1.0
         description = self._description(instructions)
         base_duration = self._duration_seconds(chunk_text, speed)
         duration = base_duration
@@ -138,14 +94,14 @@ class TinyTAuKEngine:
         )
         conditioning_seconds = time.perf_counter() - conditioning_start
 
-        best_audio: np.ndarray | None = None
+        best_audio: AudioSamples | None = None
         best_quality: QualityResult | None = None
         best_rank: tuple[bool, bool, float, float] | None = None
         best_attempt = -1
         best_seed: int | None = None
         best_duration = duration
         wer_fallbacks = 0
-        attempt_details: list[dict] = []
+        attempt_details: list[AttemptTiming] = []
 
         for attempt in range(num_attempts):
             seed = self._attempt_seed(base_seed, index, attempt, num_attempts)
@@ -202,7 +158,7 @@ class TinyTAuKEngine:
                     transcribe=engine_module.transcribe_chunk,
                 )
                 t_wer_check = time.perf_counter() - quality_start
-                wer_fallbacks += int(quality.fallback)
+                wer_fallbacks += int(quality.wer_fallback)
 
                 accept_early = quality_is_acceptable(
                     quality,
@@ -219,18 +175,17 @@ class TinyTAuKEngine:
             except ValueError:
                 pass
 
-            detail = {
-                "attempt": attempt,
-                "t_infer": t_infer,
-                "t_dsp": t_dsp,
-                "t_wer_check": t_wer_check,
-                "repeat_penalty": None,
-                "seed": seed,
-                "gen_seconds": duration,
-                "status": None,
-            }
-            detail.update(self._quality_timing_fields(quality))
-            attempt_details.append(detail)
+            attempt_details.append(AttemptTiming(
+                attempt=attempt,
+                t_infer=t_infer,
+                t_dsp=t_dsp,
+                t_wer_check=t_wer_check,
+                repeat_penalty=None,
+                seed=seed,
+                gen_seconds=duration,
+                status=None,
+                **(quality or QualityTiming()).model_dump(),
+            ))
 
             if accept_early:
                 break
@@ -242,27 +197,25 @@ class TinyTAuKEngine:
                 f"All {num_attempts} attempts produced no usable audio for chunk: {chunk_text!r}"
             )
 
-        selected_status = (
+        selected_status: AttemptStatus = (
             "accepted"
             if quality_is_acceptable(best_quality, self.settings.wer_threshold)
             else "fallback"
         )
-        for detail in attempt_details:
-            if detail["attempt"] == best_attempt:
-                detail["status"] = selected_status
+        attempt_details[best_attempt].status = selected_status
 
-        chunk_timing = {
-            "index": index,
-            "attempts": len(attempt_details),
-            "status": selected_status,
-            "duration": float(len(best_audio) / self.sample_rate),
-            "repeat_penalty": None,
-            "seed": best_seed,
-            "gen_seconds": best_duration,
-            "t_f0": 0.0,
-            "attempts_detail": attempt_details,
-        }
-        chunk_timing.update(best_quality.timing_fields())
+        chunk_timing = ChunkTiming(
+            index=index,
+            attempts=len(attempt_details),
+            status=selected_status,
+            duration=len(best_audio) / self.sample_rate,
+            repeat_penalty=None,
+            seed=best_seed,
+            gen_seconds=best_duration,
+            t_f0=0.0,
+            attempts_detail=attempt_details,
+            **best_quality.model_dump(),
+        )
         return best_audio, chunk_timing, wer_fallbacks
 
     def _duration_seconds(self, text: str, speed: float) -> float:
@@ -319,18 +272,3 @@ class TinyTAuKEngine:
             f"Based on the following description: {quoted_description}, "
             f"generate speech content {quoted_text}."
         )
-
-    @staticmethod
-    def _quality_timing_fields(quality: QualityResult | None) -> dict[str, object]:
-        if quality is None:
-            return {
-                "wer": None,
-                "cer": None,
-                "substitutions": None,
-                "deletions": None,
-                "insertions": None,
-                "prompt_leak": False,
-                "wer_source": None,
-                "wer_fallback": False,
-            }
-        return quality.timing_fields()

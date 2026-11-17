@@ -1,12 +1,10 @@
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-pytest.importorskip("omnivoice")
-
 from tinytalk.backends import omnivoice as omnivoice_backend
+from tinytalk.engine import SpeechEngine, SynthesisRequest
 from tinytalk.config import Settings
 from tinytalk.quality import QualityResult
 
@@ -46,8 +44,8 @@ def good_quality() -> QualityResult:
         deletions=0,
         insertions=0,
         prompt_leak=False,
-        source="whisper",
-        fallback=False,
+        wer_source="whisper",
+        wer_fallback=False,
     )
 
 
@@ -59,19 +57,19 @@ def bad_quality() -> QualityResult:
         deletions=0,
         insertions=0,
         prompt_leak=False,
-        source="whisper",
-        fallback=False,
+        wer_source="whisper",
+        wer_fallback=False,
     )
 
 
-def make_engine(monkeypatch, settings: Settings) -> omnivoice_backend.OmniVoiceEngine:
+def make_engine(monkeypatch, settings: Settings) -> SpeechEngine[SynthesisRequest]:
     monkeypatch.setattr(omnivoice_backend, "OmniVoice", FakeOmniVoice)
     monkeypatch.setattr(
         omnivoice_backend,
         "evaluate_audio",
         lambda *args, **kwargs: good_quality(),
     )
-    engine = omnivoice_backend.OmniVoiceEngine(settings)
+    engine = SpeechEngine(omnivoice_backend.OmniVoiceBackend(settings))
     engine.load()
     return engine
 
@@ -96,8 +94,8 @@ def test_auto_voice_passes_speed_and_language(monkeypatch):
     assert call["speed"] == 1.4
     assert call["instruct"] is None
     assert call["voice_clone_prompt"] is None
-    assert result.timing.chunks[0]["mode"] == "auto"
-    assert result.timing.chunks[0]["status"] == "accepted"
+    assert result.timing.chunks[0].mode == "auto"
+    assert result.timing.chunks[0].status == "accepted"
 
 
 def test_instructions_select_voice_design(monkeypatch):
@@ -111,7 +109,7 @@ def test_instructions_select_voice_design(monkeypatch):
     call = FakeOmniVoice.model.generate_calls[-1]
     assert call["instruct"] == "female, young adult, british accent"
     assert call["voice_clone_prompt"] is None
-    assert result.timing.chunks[0]["mode"] == "design"
+    assert result.timing.chunks[0].mode == "design"
 
 
 def test_clone_prompt_is_cached_and_used(monkeypatch, tmp_path: Path):
@@ -134,7 +132,7 @@ def test_clone_prompt_is_cached_and_used(monkeypatch, tmp_path: Path):
     call = FakeOmniVoice.model.generate_calls[-1]
     assert call["voice_clone_prompt"] == {"cached": True}
     assert call["instruct"] is None
-    assert result.timing.chunks[0]["mode"] == "clone"
+    assert result.timing.chunks[0].mode == "clone"
 
 
 def test_design_instruction_overrides_configured_clone(monkeypatch, tmp_path: Path):
@@ -172,9 +170,9 @@ def test_reference_audio_and_text_must_be_paired(monkeypatch, tmp_path: Path):
     ref_audio = tmp_path / "ref.wav"
     ref_audio.write_bytes(b"RIFF")
     monkeypatch.setattr(omnivoice_backend, "OmniVoice", FakeOmniVoice)
-    engine = omnivoice_backend.OmniVoiceEngine(
+    engine = SpeechEngine(omnivoice_backend.OmniVoiceBackend(
         Settings(backend="omnivoice", omnivoice_ref_audio=ref_audio)
-    )
+    ))
 
     with pytest.raises(ValueError, match="must be configured together"):
         engine.load()
@@ -188,9 +186,9 @@ def test_quality_retry_adds_sampling_temperature(monkeypatch):
         "evaluate_audio",
         lambda *args, **kwargs: next(qualities),
     )
-    engine = omnivoice_backend.OmniVoiceEngine(
+    engine = SpeechEngine(omnivoice_backend.OmniVoiceBackend(
         Settings(backend="omnivoice", max_retries=1)
-    )
+    ))
     engine.load()
 
     result = engine.synthesize("hello world")
@@ -198,10 +196,10 @@ def test_quality_retry_adds_sampling_temperature(monkeypatch):
     calls = FakeOmniVoice.model.generate_calls
     assert [call["class_temperature"] for call in calls] == [0.0, 0.2]
     timing = result.timing.chunks[0]
-    assert timing["attempts"] == 2
-    assert timing["status"] == "accepted"
-    assert timing["attempts_detail"][0]["status"] is None
-    assert timing["attempts_detail"][1]["status"] == "accepted"
+    assert timing.attempts == 2
+    assert timing.status == "accepted"
+    assert timing.attempts_detail[0].status is None
+    assert timing.attempts_detail[1].status == "accepted"
 
 
 def test_quality_exhaustion_returns_best_candidate_as_fallback(monkeypatch):
@@ -211,18 +209,18 @@ def test_quality_exhaustion_returns_best_candidate_as_fallback(monkeypatch):
         "evaluate_audio",
         lambda *args, **kwargs: bad_quality(),
     )
-    engine = omnivoice_backend.OmniVoiceEngine(
+    engine = SpeechEngine(omnivoice_backend.OmniVoiceBackend(
         Settings(backend="omnivoice", max_retries=1)
-    )
+    ))
     engine.load()
 
     result = engine.synthesize("hello world")
 
     timing = result.timing.chunks[0]
-    assert timing["attempts"] == 2
-    assert timing["status"] == "fallback"
+    assert timing.attempts == 2
+    assert timing.status == "fallback"
     assert sum(
-        detail["status"] == "fallback" for detail in timing["attempts_detail"]
+        detail.status == "fallback" for detail in timing.attempts_detail
     ) == 1
 
 
@@ -233,9 +231,9 @@ def test_exhausted_retries_keep_best_waveform_and_fallback_count(monkeypatch):
     )
     amplitudes = iter([0.1, 0.2, 0.3])
     qualities = iter([
-        replace(bad_quality(), wer=0.6, cer=0.6, source="confidence", fallback=True),
-        replace(bad_quality(), wer=0.3, cer=0.3),
-        replace(bad_quality(), wer=0.7, cer=0.7),
+        bad_quality().model_copy(update={"wer": 0.6, "cer": 0.6, "wer_source": "confidence", "wer_fallback": True}),
+        bad_quality().model_copy(update={"wer": 0.3, "cer": 0.3}),
+        bad_quality().model_copy(update={"wer": 0.7, "cer": 0.7}),
     ])
 
     monkeypatch.setattr(
@@ -254,10 +252,10 @@ def test_exhausted_retries_keep_best_waveform_and_fallback_count(monkeypatch):
 
     assert np.max(result.audio) == pytest.approx(0.2)
     assert result.timing.wer_fallbacks == 1
-    assert timing["attempts"] == 3
-    assert timing["class_temperature"] == pytest.approx(0.2)
-    assert timing["wer"] == pytest.approx(0.3)
-    assert [detail["status"] for detail in timing["attempts_detail"]] == [
+    assert timing.attempts == 3
+    assert timing.class_temperature == pytest.approx(0.2)
+    assert timing.wer == pytest.approx(0.3)
+    assert [detail.status for detail in timing.attempts_detail] == [
         None,
         "fallback",
         None,

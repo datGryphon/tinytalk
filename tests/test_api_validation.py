@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -9,14 +12,18 @@ from fastapi.testclient import TestClient
 
 from tinytalk import server
 from tinytalk.config import Settings
-from tinytalk.engine import RequestTiming, TinyTalkEngine, SynthesisResult
+from tinytalk.engine import SpeechEngine, SynthesisResult
+from tinytalk.timing import AttemptTiming, ChunkTiming, RequestTiming
+
+if TYPE_CHECKING:
+    from tinytalk.backends.neutts import NeuTTSRequest
 
 
 class FakeEngine:
     loaded = True
     last_text = None
 
-    def synthesize(self, text):
+    def synthesize(self, text, *, instructions=None, speed=None):
         self.last_text = text
         return SynthesisResult(
             audio=np.zeros(2400, dtype=np.float32),
@@ -80,70 +87,68 @@ def test_accepts_ignored_openai_fields_and_returns_wav(monkeypatch):
 
 
 def _make_timing() -> RequestTiming:
-    """A two-chunk timing payload with one accepted reroll and a fallback.
-
-    Chunks and attempts are plain dicts (matching what synthesize emits) so the
-    server path exercises the real JSON-serializable structure.
-    """
+    """A two-chunk timing payload with one accepted reroll and a fallback."""
     return RequestTiming(
         chunks=[
-            {
-                "index": 0,
-                "attempts": 1,
-                "duration": 1.0,
-                "repeat_penalty": 1.0,
-                "wer": 0.1,
-                "wer_source": "whisper",
-                "wer_fallback": False,
-                "t_f0": 0.05,
-                "attempts_detail": [
-                    {
-                        "attempt": 0,
-                        "t_infer": 0.50,
-                        "t_dsp": 0.02,
-                        "t_wer_check": 0.01,
-                        "wer": 0.1,
-                        "wer_source": "whisper",
-                        "wer_fallback": False,
-                        "repeat_penalty": 1.0,
-                        "accepted": True,
-                    },
+            ChunkTiming(
+                index=0,
+                attempts=1,
+                duration=1.0,
+                status="accepted",
+                repeat_penalty=1.0,
+                wer=0.1,
+                wer_source="whisper",
+                wer_fallback=False,
+                t_f0=0.05,
+                attempts_detail=[
+                    AttemptTiming(
+                        attempt=0,
+                        t_infer=0.50,
+                        t_dsp=0.02,
+                        t_wer_check=0.01,
+                        wer=0.1,
+                        wer_source="whisper",
+                        wer_fallback=False,
+                        repeat_penalty=1.0,
+                        status="accepted",
+                    ),
                 ],
-            },
-            {
-                "index": 1,
-                "attempts": 2,
-                "duration": 1.5,
-                "repeat_penalty": 1.1,
-                "wer": 0.2,
-                "wer_source": "confidence",
-                "wer_fallback": True,
-                "t_f0": 0.06,
-                "attempts_detail": [
-                    {
-                        "attempt": 0,
-                        "t_infer": 0.60,
-                        "t_dsp": 0.03,
-                        "t_wer_check": 0.02,
-                        "wer": 0.5,
-                        "wer_source": "whisper",
-                        "wer_fallback": False,
-                        "repeat_penalty": 1.0,
-                        "accepted": False,
-                    },
-                    {
-                        "attempt": 1,
-                        "t_infer": 0.70,
-                        "t_dsp": 0.03,
-                        "t_wer_check": 0.02,
-                        "wer": 0.2,
-                        "wer_source": "confidence",
-                        "wer_fallback": True,
-                        "repeat_penalty": 1.1,
-                        "accepted": True,
-                    },
+            ),
+            ChunkTiming(
+                index=1,
+                attempts=2,
+                duration=1.5,
+                status="fallback",
+                repeat_penalty=1.1,
+                wer=0.2,
+                wer_source="confidence",
+                wer_fallback=True,
+                t_f0=0.06,
+                attempts_detail=[
+                    AttemptTiming(
+                        attempt=0,
+                        t_infer=0.60,
+                        t_dsp=0.03,
+                        t_wer_check=0.02,
+                        wer=0.5,
+                        wer_source="whisper",
+                        wer_fallback=False,
+                        repeat_penalty=1.0,
+                        status=None,
+                    ),
+                    AttemptTiming(
+                        attempt=1,
+                        t_infer=0.70,
+                        t_dsp=0.03,
+                        t_wer_check=0.02,
+                        wer=0.2,
+                        wer_source="confidence",
+                        wer_fallback=True,
+                        repeat_penalty=1.1,
+                        status="fallback",
+                    ),
                 ],
-            },
+            ),
         ],
         wer_fallbacks=1,
     )
@@ -154,7 +159,7 @@ class FakeEngineTiming:
     last_audio: np.ndarray | None = None
     last_sample_rate: int | None = None
 
-    def synthesize(self, text):
+    def synthesize(self, text, *, instructions=None, speed=None):
         audio = np.zeros(2400, dtype=np.float32)
         self.last_audio = audio
         self.last_sample_rate = 24_000
@@ -213,8 +218,8 @@ def test_timing_logged_as_json_line(monkeypatch, caplog):
     # The server emits the raw chunk list under "timing".
     assert len(payload["timing"]) == 2
     detail = payload["timing"][1]["attempts_detail"]
-    assert detail[0]["accepted"] is False
-    assert detail[1]["accepted"] is True
+    assert detail[0]["status"] is None
+    assert detail[1]["status"] == "fallback"
     assert detail[1]["wer_fallback"] is True
 
 
@@ -227,7 +232,7 @@ def _good_audio() -> np.ndarray:
     )
 
 
-def _real_engine_with_fake_tts() -> TinyTalkEngine:
+def _real_engine_with_fake_tts() -> SpeechEngine[NeuTTSRequest]:
     """A real engine with a fake NeuTTS backbone so synthesize succeeds offline."""
     voices = Path(__file__).parent / "voices"
     settings = Settings(
@@ -237,12 +242,15 @@ def _real_engine_with_fake_tts() -> TinyTalkEngine:
         wer_threshold=1.0,  # accept the first good attempt
         max_retries=0,
     )
-    engine = TinyTalkEngine(settings)
-    engine.ref_codes = [1, 2, 3]
-    engine.ref_text = "test reference"
-    engine.sample_rate = 24_000
-    engine.tts = MagicMock()
-    engine.tts.infer = MagicMock(return_value=_good_audio())
+    from tinytalk.backends.neutts import NeuTTSBackend
+
+    engine = SpeechEngine(NeuTTSBackend(settings))
+    engine.backend.ref_codes = [1, 2, 3]
+    engine.backend.ref_text = "test reference"
+    engine.backend.sample_rate = 24_000
+    engine.backend.tts = MagicMock()
+    engine.backend.tts.infer = MagicMock(return_value=_good_audio())
+    engine.backend.loaded = True
     # Skip model download: the lifespan calls load(), which would hit the network.
     engine.load = lambda: None
     return engine
@@ -290,7 +298,7 @@ def test_synthesis_failure_logs_error_without_input(monkeypatch, caplog):
     class FailingSynthEngine:
         loaded = True
 
-        def synthesize(self, text):
+        def synthesize(self, text, *, instructions=None, speed=None):
             raise RuntimeError(f"boom involving {text!r}")
 
         def load(self):
@@ -326,7 +334,7 @@ def test_encoding_failure_logs_error_without_input(monkeypatch, caplog):
     class OkSynthEngine:
         loaded = True
 
-        def synthesize(self, text):
+        def synthesize(self, text, *, instructions=None, speed=None):
             return SynthesisResult(
                 audio=np.zeros(2400, dtype=np.float32),
                 sample_rate=24_000,

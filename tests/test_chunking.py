@@ -1,6 +1,6 @@
 import pytest
 
-from tinytalk.chunking import split_text
+from tinytalk.chunking import split_tagged_text, split_text
 
 
 @pytest.mark.parametrize(
@@ -35,3 +35,21 @@ def test_long_sentence_splits_on_commas_before_whitespace():
     chunks = split_text(text, 24)
     assert all(len(chunk) <= 24 for chunk in chunks)
     assert chunks[0].endswith(",")
+
+
+def test_tagged_split_preserves_distinct_native_tags():
+    chunks = split_tagged_text("First. [laugh] Second. [clear_throat] Last.", 14)
+    text = " ".join(chunks)
+    assert text.count("[laugh]") == text.count("[clear_throat]") == 1
+    assert text.index("[laugh]") < text.index("[clear_throat]")
+    assert all(len(chunk) <= 14 for chunk in chunks)
+
+
+def test_tagged_split_rejects_undersized_limit():
+    with pytest.raises(ValueError, match="fit every native tag"):
+        split_tagged_text("Hello [laugh]", 3)
+
+
+def test_tagged_split_keeps_plain_text_behavior():
+    text = "One sentence. Another sentence."
+    assert split_tagged_text(text, 15) == split_text(text, 15)

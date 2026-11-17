@@ -2,8 +2,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
-.venv-neutts/
-.venv-omnivoice/
-.venv-tinytauk/
+.venv-*/
 *.egg-info/
 test_artifacts/

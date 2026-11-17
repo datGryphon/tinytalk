@@ -1,14 +1,22 @@
 import os
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-Backend = Literal["neutts", "tinytauk", "omnivoice"]
+Backend = Literal["neutts", "tinytauk", "omnivoice", "silencio2", "chatterbox_nano"]
 
 
-@dataclass(frozen=True)
-class Settings:
+def _env_name(field: str) -> str:
+    return f"TINYTALK_{field.upper()}"
+
+
+class Settings(BaseModel):
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", alias_generator=_env_name, validate_by_name=True,
+    )
+
     backend: Backend = "neutts"
     model: str = "neuphonic/neutts-nano-q4-gguf"
     codec: str = "neuphonic/neucodec-onnx-decoder-int8"
@@ -18,111 +26,42 @@ class Settings:
     tinytauk_model: str = "tencent/AuK-Flash"
     tinytauk_qwen_model: str = "Qwen/Qwen2.5-Omni-3B"
     tinytauk_profile: Path | None = None
-    tinytauk_chars_per_second: float = 14.0
+    tinytauk_chars_per_second: float = Field(default=14.0, gt=0)
     omnivoice_model: str = "k2-fsa/OmniVoice"
     omnivoice_device: str = "cpu"
     omnivoice_language: str = ""
     omnivoice_ref_audio: Path | None = None
     omnivoice_ref_text: Path | None = None
+    silencio2_voice: str = "260"
+    chatterbox_nano_ref_audio: Path | None = None
     host: str = "0.0.0.0"
     port: int = 9002
-    max_chars_per_chunk: int = 180
+    max_chars_per_chunk: int = Field(default=180, gt=0)
     inter_chunk_silence_ms: int = 60
     temperature: float = 1.0
     repeat_penalty: float = 1.0
-    max_retries: int = 2
+    max_retries: int = Field(default=2, ge=0)
     repeat_penalty_reroll_step: float = 0.10
     wer_endpoint: str = ""
     wer_threshold: float = 0.25
     watermark: bool = False
 
+    @field_validator(
+        "tinytauk_profile", "omnivoice_ref_audio", "omnivoice_ref_text",
+        "chatterbox_nano_ref_audio", mode="before",
+    )
+    @classmethod
+    def _optional_path(cls, value: str | Path | None) -> str | Path | None:
+        return None if isinstance(value, str) and not value.strip() else value
+
 
 def load_settings() -> Settings:
-    return Settings(
-        backend=_backend_env("TINYTALK_BACKEND", Settings.backend),
-        model=os.getenv("TINYTALK_MODEL", Settings.model),
-        codec=os.getenv("TINYTALK_CODEC", Settings.codec),
-        backbone_device=os.getenv("TINYTALK_BACKBONE_DEVICE", Settings.backbone_device),
-        ref_codes=Path(os.getenv("TINYTALK_REF_CODES", str(Settings.ref_codes))),
-        ref_text=Path(os.getenv("TINYTALK_REF_TEXT", str(Settings.ref_text))),
-        tinytauk_model=os.getenv("TINYTALK_TINYTAUK_MODEL", Settings.tinytauk_model),
-        tinytauk_qwen_model=os.getenv(
-            "TINYTALK_TINYTAUK_QWEN_MODEL", Settings.tinytauk_qwen_model
-        ),
-        tinytauk_profile=_optional_path_env("TINYTALK_TINYTAUK_PROFILE"),
-        tinytauk_chars_per_second=_float_env(
-            "TINYTALK_TINYTAUK_CHARS_PER_SECOND", Settings.tinytauk_chars_per_second
-        ),
-        omnivoice_model=os.getenv("TINYTALK_OMNIVOICE_MODEL", Settings.omnivoice_model),
-        omnivoice_device=os.getenv("TINYTALK_OMNIVOICE_DEVICE", Settings.omnivoice_device),
-        omnivoice_language=os.getenv("TINYTALK_OMNIVOICE_LANGUAGE", Settings.omnivoice_language),
-        omnivoice_ref_audio=_optional_path_env("TINYTALK_OMNIVOICE_REF_AUDIO"),
-        omnivoice_ref_text=_optional_path_env("TINYTALK_OMNIVOICE_REF_TEXT"),
-        host=os.getenv("TINYTALK_HOST", Settings.host),
-        port=_int_env("TINYTALK_PORT", Settings.port),
-        max_chars_per_chunk=_int_env(
-            "TINYTALK_MAX_CHARS_PER_CHUNK", Settings.max_chars_per_chunk
-        ),
-        inter_chunk_silence_ms=_int_env(
-            "TINYTALK_INTER_CHUNK_SILENCE_MS", Settings.inter_chunk_silence_ms
-        ),
-        temperature=_float_env("TINYTALK_TEMPERATURE", Settings.temperature),
-        repeat_penalty=_float_env("TINYTALK_REPEAT_PENALTY", Settings.repeat_penalty),
-        max_retries=_int_env("TINYTALK_MAX_RETRIES", Settings.max_retries),
-        repeat_penalty_reroll_step=_float_env(
-            "TINYTALK_REPEAT_PENALTY_REROLL_STEP", Settings.repeat_penalty_reroll_step
-        ),
-        wer_endpoint=os.getenv("TINYTALK_WER_ENDPOINT", Settings.wer_endpoint),
-        wer_threshold=_float_env("TINYTALK_WER_THRESHOLD", Settings.wer_threshold),
-        watermark=_bool_env("TINYTALK_WATERMARK", Settings.watermark),
-    )
-
-
-def _backend_env(name: str, default: Backend) -> Backend:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    if raw not in ("neutts", "tinytauk", "omnivoice"):
-        raise ValueError(
-            f"{name} must be 'neutts', 'tinytauk', or 'omnivoice', got {raw!r}"
-        )
-    return cast(Backend, raw)
-
-
-def _optional_path_env(name: str) -> Path | None:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return None
-    return Path(raw)
-
-
-def _int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
-
-
-def _float_env(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        return float(raw)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a number, got {raw!r}") from exc
-
-
-def _bool_env(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    low = raw.lower()
-    if low in ("1", "true", "yes", "on"):
-        return True
-    if low in ("0", "false", "no", "off"):
-        return False
-    raise ValueError(f"{name} must be a boolean, got {raw!r}")
+    # Empty numeric/boolean/backend variables retain their defaults, while
+    # explicitly configured string and path values still reach the model.
+    return Settings.model_validate({
+        name: value
+        for field in Settings.model_fields.values()
+        if (name := field.alias) is not None
+        and (value := os.getenv(name)) is not None
+        and (value != "" or field.annotation in (str, Path))
+    })

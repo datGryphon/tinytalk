@@ -1,49 +1,32 @@
-"""Validate the installed backend against the canonical project metadata."""
+"""Validate all backends together against the canonical project metadata."""
 
 import importlib.metadata as metadata
 import importlib.util
 import json
-import os
 import sys
 import tomllib
 from pathlib import Path
+from typing import get_args
 
 import pytest
+from packaging.requirements import Requirement
+
+from tinytalk.config import Backend, Settings
+from tinytalk.engine import SpeechBackend, SpeechEngine, create_engine
 
 
 PROJECT = tomllib.loads(Path("pyproject.toml").read_text())
-BACKEND = os.environ["TINYTALK_BACKEND"]
+BACKENDS = get_args(Backend)
 
 
-def _name(requirement: str) -> str:
-    head = requirement.split(" @ ", 1)[0].split("==", 1)[0].strip()
-    return head.split("[", 1)[0]
-
-
-def _installed(name: str) -> bool:
-    try:
-        metadata.version(name)
-    except metadata.PackageNotFoundError:
-        return False
-    return True
-
-
-def _check_requirement(requirement: str, *, required: bool) -> None:
-    name = _name(requirement)
-    if not required and not _installed(name):
-        return
-
+def _check_requirement(requirement: str) -> None:
+    req = Requirement(requirement)
+    name = req.name
     actual = metadata.version(name)
-    if "==" in requirement:
-        wanted = requirement.split("==", 1)[1].strip()
-        assert actual == wanted or actual.split("+", 1)[0] == wanted, (
-            name,
-            actual,
-            wanted,
-        )
-
-    if " @ " in requirement:
-        wanted_url = requirement.split(" @ ", 1)[1].strip()
+    specifier = req.specifier
+    assert not specifier or specifier.contains(actual), (name, actual, str(specifier))
+    if req.url:
+        wanted_url = req.url
         direct_url = metadata.distribution(name).read_text("direct_url.json")
         assert direct_url is not None, f"Missing direct_url.json for {name}"
         actual_url = json.loads(direct_url)["url"]
@@ -64,15 +47,36 @@ def test_tinytalk_distribution_is_installed():
     assert metadata.version("tinytalk") == tinytalk.__version__
 
 
-def test_backend_dependencies_match_project():
-    requirements = PROJECT["project"]["optional-dependencies"][BACKEND]
+@pytest.mark.parametrize("extra", PROJECT["project"]["optional-dependencies"])
+def test_dependencies_match_project(extra):
+    requirements = PROJECT["project"]["optional-dependencies"][extra]
     for requirement in requirements:
-        _check_requirement(requirement, required=True)
+        _check_requirement(requirement)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_engine_composes_speech_backend(backend):
+    settings = Settings(backend=backend)
+    engine = create_engine(settings)
+    assert type(engine) is SpeechEngine
+    assert isinstance(engine.backend, SpeechBackend)
+    assert engine.settings is settings
+    assert engine.loaded is False
+    assert engine.sample_rate == 24_000
+    assert engine.model_name
+
+    for instance in (engine, engine.backend):
+        declared = {
+            name
+            for cls in type(instance).__mro__
+            for name in cls.__dict__.get("__annotations__", {})
+        }
+        assert vars(instance).keys() <= declared
 
 
 def test_installed_overrides_match_project():
     for requirement in PROJECT["tool"]["uv"]["override-dependencies"]:
-        _check_requirement(requirement, required=False)
+        _check_requirement(requirement)
 
 
 @pytest.mark.parametrize("package", ["torchtune", "torchao"])

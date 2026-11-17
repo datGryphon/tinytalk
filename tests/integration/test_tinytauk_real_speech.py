@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 pytest.importorskip("tinytauk")
 
 from tinytalk import server
-from tinytalk.backends.tinytauk import TinyTAuKEngine
+from tinytalk.backends.tinytauk import TinyTAuKBackend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 
 pytestmark = pytest.mark.skipif(
@@ -19,7 +20,7 @@ pytestmark = pytest.mark.skipif(
 def test_tinytauk_speech_smoke(monkeypatch):
     settings = Settings(backend="tinytauk", max_chars_per_chunk=180)
     monkeypatch.setattr(server, "settings", settings)
-    monkeypatch.setattr(server, "engine", TinyTAuKEngine(settings))
+    monkeypatch.setattr(server, "engine", SpeechEngine(TinyTAuKBackend(settings)))
 
     artifact_dir = Path("test_artifacts")
     artifact_dir.mkdir(exist_ok=True)

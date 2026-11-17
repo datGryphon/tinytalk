@@ -2,39 +2,33 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import override
 
 import numpy as np
 import torch
-from omnivoice.models.omnivoice import OmniVoice
+from omnivoice.models.omnivoice import OmniVoice, VoiceClonePrompt
 
 from .. import engine as engine_module
-from ..audio import edge_fade, peak_limit, silence, trim_edge_silence
-from ..chunking import split_text
+from ..audio import AudioArray, AudioSamples, edge_fade, peak_limit, trim_edge_silence
 from ..config import Settings
-from ..engine import RequestTiming, SynthesisResult
+from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
+from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, VoiceMode
 
 _RETRY_CLASS_TEMPERATURE_STEP = 0.2
 _MAX_RETRY_CLASS_TEMPERATURE = 1.0
 
 
-class OmniVoiceEngine:
-    settings: Settings
+class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
     tts: OmniVoice | None
-    voice_clone_prompt: Any | None
-    sample_rate: int
-    loaded: bool
-    model_name: str
+    voice_clone_prompt: VoiceClonePrompt | None
 
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+        super().__init__(settings, settings.omnivoice_model)
         self.tts = None
         self.voice_clone_prompt = None
-        self.sample_rate = 24_000
-        self.loaded = False
-        self.model_name = settings.omnivoice_model
 
+    @override
     def load(self) -> None:
         self._validate_reference_config()
         device = self.settings.omnivoice_device.strip() or "cpu"
@@ -58,74 +52,40 @@ class OmniVoiceEngine:
 
         self.loaded = True
 
-    def synthesize(
+    @override
+    def prepare_request(
         self,
-        text: str,
         *,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> SynthesisResult:
-        if self.tts is None:
-            raise RuntimeError("engine not loaded. Call load() first")
+        instructions: str | None,
+        speed: float | None,
+    ) -> SynthesisRequest:
         if speed is not None and speed <= 0:
             raise ValueError("speed must be positive")
 
-        instructions = instructions.strip() if instructions else None
-        language = self.settings.omnivoice_language.strip() or None
-        chunks = split_text(text, self.settings.max_chars_per_chunk)
-        parts: list[np.ndarray] = []
-        chunk_timings: list[dict] = []
-        wer_fallbacks = 0
+        return SynthesisRequest(instructions=instructions.strip() if instructions else None, speed=speed)
 
-        for index, chunk in enumerate(chunks):
-            wav, chunk_timing, chunk_fallbacks = self._synthesize_chunk(
-                chunk,
-                index=index,
-                num_chunks=len(chunks),
-                instructions=instructions,
-                speed=speed,
-                language=language,
-            )
-            wer_fallbacks += chunk_fallbacks
-            if index > 0 and self.settings.inter_chunk_silence_ms > 0:
-                parts.append(
-                    silence(
-                        self.sample_rate,
-                        self.settings.inter_chunk_silence_ms,
-                        wav.dtype,
-                    )
-                )
-            parts.append(wav)
-            chunk_timings.append(chunk_timing)
-
-        return SynthesisResult(
-            audio=np.concatenate(parts) if len(parts) > 1 else parts[0],
-            sample_rate=self.sample_rate,
-            chunks=chunks,
-            timing=RequestTiming(chunks=chunk_timings, wer_fallbacks=wer_fallbacks),
-        )
-
-    def _synthesize_chunk(
+    @override
+    def synthesize_chunk(
         self,
+        request: SynthesisRequest,
         chunk_text: str,
-        *,
         index: int,
         num_chunks: int,
-        instructions: str | None,
-        speed: float | None,
-        language: str | None,
-    ) -> tuple[np.ndarray, dict, int]:
+    ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
+        instructions = request.instructions
+        speed = request.speed
+        language = self.settings.omnivoice_language.strip() or None
         mode = self._mode(instructions)
         num_attempts = self.settings.max_retries + 1
-        best_audio: np.ndarray | None = None
+        best_audio: AudioSamples | None = None
         best_quality: QualityResult | None = None
         best_attempt = -1
         best_temperature = 0.0
         wer_fallbacks = 0
-        attempt_details: list[dict] = []
+        attempt_details: list[AttemptTiming] = []
 
         for attempt in range(num_attempts):
             temperature = min(
@@ -143,7 +103,7 @@ class OmniVoiceEngine:
                 language=language,
                 temperature=temperature,
             )
-            wer_fallbacks += int(quality.fallback)
+            wer_fallbacks += int(quality.wer_fallback)
 
             accepted = quality_is_acceptable(quality, self.settings.wer_threshold)
             if (
@@ -181,12 +141,12 @@ class OmniVoiceEngine:
         attempt: int,
         index: int,
         num_chunks: int,
-        mode: str,
+        mode: VoiceMode,
         instructions: str | None,
         speed: float | None,
         language: str | None,
         temperature: float,
-    ) -> tuple[np.ndarray, QualityResult, dict]:
+    ) -> tuple[AudioSamples, QualityResult, AttemptTiming]:
         raw_audio, t_infer = self._generate_audio(
             chunk_text,
             mode=mode,
@@ -207,29 +167,29 @@ class OmniVoiceEngine:
             instructions=instructions,
         )
 
-        detail = {
-            "attempt": attempt,
-            "t_infer": t_infer,
-            "t_dsp": t_dsp,
-            "t_wer_check": t_wer_check,
-            "repeat_penalty": None,
-            "class_temperature": temperature,
-            "mode": mode,
-            "status": None,
-        }
-        detail.update(quality.timing_fields())
+        detail = AttemptTiming(
+            attempt=attempt,
+            t_infer=t_infer,
+            t_dsp=t_dsp,
+            t_wer_check=t_wer_check,
+            repeat_penalty=None,
+            class_temperature=temperature,
+            mode=mode,
+            status=None,
+            **quality.model_dump(),
+        )
         return wav, quality, detail
 
     def _generate_audio(
         self,
         text: str,
         *,
-        mode: str,
+        mode: VoiceMode,
         instructions: str | None,
         language: str | None,
         speed: float | None,
         temperature: float,
-    ) -> tuple[np.ndarray, float]:
+    ) -> tuple[AudioArray, float]:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
@@ -250,11 +210,11 @@ class OmniVoiceEngine:
 
     def _postprocess_audio(
         self,
-        audio: np.ndarray,
+        audio: AudioArray,
         *,
         index: int,
         num_chunks: int,
-    ) -> tuple[np.ndarray, float]:
+    ) -> tuple[AudioSamples, float]:
         start = time.perf_counter()
         wav = np.asarray(audio, dtype=np.float32).squeeze()
         if wav.ndim != 1 or wav.size == 0:
@@ -272,10 +232,10 @@ class OmniVoiceEngine:
 
     def _evaluate_quality(
         self,
-        wav: np.ndarray,
+        wav: AudioSamples,
         chunk_text: str,
         *,
-        mode: str,
+        mode: VoiceMode,
         instructions: str | None,
     ) -> tuple[QualityResult, float]:
         start = time.perf_counter()
@@ -294,35 +254,34 @@ class OmniVoiceEngine:
         self,
         *,
         index: int,
-        mode: str,
-        audio: np.ndarray,
+        mode: VoiceMode,
+        audio: AudioSamples,
         quality: QualityResult,
         temperature: float,
         selected_attempt: int,
-        details: list[dict],
-    ) -> dict:
-        status = (
+        details: list[AttemptTiming],
+    ) -> ChunkTiming:
+        status: AttemptStatus = (
             "accepted"
             if quality_is_acceptable(quality, self.settings.wer_threshold)
             else "fallback"
         )
-        details[selected_attempt]["status"] = status
+        details[selected_attempt].status = status
 
-        timing = {
-            "index": index,
-            "attempts": len(details),
-            "status": status,
-            "duration": float(len(audio) / self.sample_rate),
-            "repeat_penalty": None,
-            "class_temperature": temperature,
-            "mode": mode,
-            "t_f0": 0.0,
-            "attempts_detail": details,
-        }
-        timing.update(quality.timing_fields())
-        return timing
+        return ChunkTiming(
+            index=index,
+            attempts=len(details),
+            status=status,
+            duration=len(audio) / self.sample_rate,
+            repeat_penalty=None,
+            class_temperature=temperature,
+            mode=mode,
+            t_f0=0.0,
+            attempts_detail=details,
+            **quality.model_dump(),
+        )
 
-    def _mode(self, instructions: str | None) -> str:
+    def _mode(self, instructions: str | None) -> VoiceMode:
         if instructions:
             return "design"
         if self.voice_clone_prompt is not None:

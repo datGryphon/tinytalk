@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 pytest.importorskip("omnivoice")
 
 from tinytalk import server
-from tinytalk.backends.omnivoice import OmniVoiceEngine
+from tinytalk.backends.omnivoice import OmniVoiceBackend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 
 pytestmark = pytest.mark.skipif(
@@ -26,7 +27,7 @@ def test_omnivoice_voice_design_smoke(monkeypatch):
         max_retries=0,
     )
     monkeypatch.setattr(server, "settings", settings)
-    monkeypatch.setattr(server, "engine", OmniVoiceEngine(settings))
+    monkeypatch.setattr(server, "engine", SpeechEngine(OmniVoiceBackend(settings)))
 
     artifact_dir = Path("test_artifacts")
     artifact_dir.mkdir(exist_ok=True)

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from tinytalk.wer import transcribe_chunk, word_error_rate
 
@@ -45,7 +45,7 @@ class TestWordErrorRate:
 class TestTranscribeChunk:
 
     def test_returns_text_from_json(self):
-        fake_response = json.dumps({"text": "transcribed words"})
+        fake_response = json.dumps({"text": "transcribed words", "duration": 1.0})
         mock_resp = MagicMock()
         mock_resp.read.return_value = fake_response.encode()
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
@@ -55,6 +55,15 @@ class TestTranscribeChunk:
             result = transcribe_chunk(b"fake-wav", "hello", "http://localhost:9002")
 
         assert result == "transcribed words"
+
+    @pytest.mark.parametrize("body", [b"{", b"{}", b'{"text": 123}', b'{"text": null}'])
+    def test_rejects_invalid_transcription_response(self, body):
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = body
+        with patch("tinytalk.wer.urllib.request.urlopen", return_value=mock_resp):
+            with pytest.raises(ValidationError):
+                transcribe_chunk(b"wav", "hello", "http://x")
 
     def test_raises_on_http_error(self):
         mock_resp = MagicMock()

@@ -26,6 +26,8 @@ let
     llamaCppCudaArchitectures = "61";
   };
   omnivoice = evaluate "omnivoice" { };
+  silencio2 = evaluate "silencio2" { silencio2Voice = "/var/lib/tinytalk/reference.wav"; };
+  chatterboxNano = evaluate "chatterbox_nano" { chatterboxNanoRefAudio = "/var/lib/tinytalk/reference.wav"; };
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
 
   usesAppDirectory = service:
@@ -39,11 +41,17 @@ assert lib.assertMsg (
   usesAppDirectory neutts
   && usesAppDirectory omnivoice
   && usesAppDirectory tinytauk
+  && usesAppDirectory silencio2
+  && usesAppDirectory chatterboxNano
 ) "TinyTalk services must sync and execute the writable app directory";
 assert lib.assertMsg (
   neutts.environment.TINYTALK_BACKEND == "neutts"
   && omnivoice.environment.TINYTALK_BACKEND == "omnivoice"
   && tinytauk.environment.TINYTALK_BACKEND == "tinytauk"
+  && silencio2.environment.TINYTALK_BACKEND == "silencio2"
+  && silencio2.environment.TINYTALK_SILENCIO2_VOICE == "/var/lib/tinytalk/reference.wav"
+  && chatterboxNano.environment.TINYTALK_BACKEND == "chatterbox_nano"
+  && chatterboxNano.environment.TINYTALK_CHATTERBOX_NANO_REF_AUDIO == "/var/lib/tinytalk/reference.wav"
 ) "Each service must forward its selected backend";
 assert lib.assertMsg (
   tinytauk.environment.TINYTALK_TINYTAUK_PROFILE == "${profile}"
@@ -57,6 +65,11 @@ assert lib.assertMsg (
   && lib.hasInfix "cuda-merged" neuttsCuda.environment.CUDA_HOME
   && lib.elem pkgs.cudaPackages_12.cudatoolkit neuttsCuda.path
   && neutts.environment.UV_CACHE_DIR != neuttsGpu.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR != neuttsCuda.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR == omnivoice.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR == tinytauk.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR == silencio2.environment.UV_CACHE_DIR
+  && neutts.environment.UV_CACHE_DIR == chatterboxNano.environment.UV_CACHE_DIR
   && lib.elem pkgs.glslang neuttsGpu.path
 ) "TinyTalk must isolate native wheel caches by NeuTTS acceleration backend";
 

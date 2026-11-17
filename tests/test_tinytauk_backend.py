@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 import torch
 
-pytest.importorskip("tinytauk")
-
 from tinytauk.types import Conditioning, GenerationResult
 
 from tinytalk.backends import tinytauk as backend_module
-from tinytalk.backends.tinytauk import TinyTAuKEngine
+from tinytalk.backends.tinytauk import TinyTAuKBackend
+from tinytalk.engine import SpeechEngine
 from tinytalk.config import Settings
 from tinytalk.quality import QualityResult
+from tinytalk.timing import QualitySource
 
 
 @dataclass(frozen=True)
@@ -96,10 +96,10 @@ def _engine(**overrides):
         "max_retries": 0,
     }
     values.update(overrides)
-    engine = TinyTAuKEngine(Settings(**values))
-    engine.tts = FakeTinyTAuK()
-    engine.sample_rate = 24_000
-    engine.loaded = True
+    engine = SpeechEngine(TinyTAuKBackend(Settings(**values)))
+    engine.backend.tts = FakeTinyTAuK()
+    engine.backend.sample_rate = 24_000
+    engine.backend.loaded = True
     return engine
 
 
@@ -111,7 +111,7 @@ def _quality(
     deletions: int = 0,
     substitutions: int = 0,
     prompt_leak: bool = False,
-    source: str = "whisper",
+    source: QualitySource = "whisper",
     fallback: bool = False,
 ) -> QualityResult:
     return QualityResult(
@@ -121,8 +121,8 @@ def _quality(
         deletions=deletions,
         insertions=insertions,
         prompt_leak=prompt_leak,
-        source=source,
-        fallback=fallback,
+        wer_source=source,
+        wer_fallback=fallback,
     )
 
 
@@ -142,7 +142,7 @@ def test_load_uses_models_and_warms_full_generation(monkeypatch):
         tinytauk_model="example/AuK",
         tinytauk_qwen_model="example/Qwen",
     )
-    engine = TinyTAuKEngine(settings)
+    engine = SpeechEngine(TinyTAuKBackend(settings))
 
     engine.load()
 
@@ -174,13 +174,13 @@ def test_load_uses_tinytauk_profile(monkeypatch, tmp_path):
             raise AssertionError("profile must override from_pretrained")
 
     monkeypatch.setattr(backend_module, "TinyTAuK", FakeFactory)
-    engine = TinyTAuKEngine(
+    engine = SpeechEngine(TinyTAuKBackend(
         Settings(
             backend="tinytauk",
             tinytauk_profile=profile,
             tinytauk_model="unused/default",
         )
-    )
+    ))
 
     engine.load()
 
@@ -195,7 +195,7 @@ def test_instructions_use_canonical_auk_serialization():
     engine = _engine()
     engine.synthesize("hello world", instructions="Speak calmly")
 
-    assert engine.tts.condition_calls[0].instruction == (
+    assert engine.backend.tts.condition_calls[0].instruction == (
         'Based on the following description: "Speak calmly", '
         'generate speech content "hello world".'
     )
@@ -205,7 +205,7 @@ def test_default_description_uses_canonical_auk_serialization():
     engine = _engine()
     engine.synthesize("hello world")
 
-    assert engine.tts.condition_calls[0].instruction == (
+    assert engine.backend.tts.condition_calls[0].instruction == (
         'Based on the following description: "A clear, natural speaking voice", '
         'generate speech content "hello world".'
     )
@@ -217,16 +217,16 @@ def test_speed_scales_target_duration():
 
     engine.synthesize(text, speed=2.0)
 
-    assert engine.tts.generate_calls[0].gen_seconds == pytest.approx(1.0)
+    assert engine.backend.tts.generate_calls[0].gen_seconds == pytest.approx(1.0)
 
 
 def test_chunk_seeds_are_deterministic_and_distinct():
     engine = _engine()
     engine.synthesize("one two three four five six seven eight nine ten")
 
-    assert len(engine.tts.generate_calls) >= 2
-    assert [call.seed for call in engine.tts.generate_calls[:2]] == [100, 101]
-    assert [call.seed for call in engine.tts.condition_calls[:2]] == [100, 101]
+    assert len(engine.backend.tts.generate_calls) >= 2
+    assert [call.seed for call in engine.backend.tts.generate_calls[:2]] == [100, 101]
+    assert [call.seed for call in engine.backend.tts.condition_calls[:2]] == [100, 101]
 
 
 def test_backend_does_not_loudness_normalize():
@@ -254,7 +254,7 @@ def test_backend_does_not_loudness_normalize():
                 wall_seconds=0.0,
             )
 
-    engine.tts = QuietTinyTAuK()
+    engine.backend.tts = QuietTinyTAuK()
     result = engine.synthesize("quiet speech")
 
     assert isinstance(result.audio, np.ndarray)
@@ -274,25 +274,25 @@ def test_retries_reuse_one_conditioning_object(monkeypatch):
 
     engine.synthesize("x" * 28)
 
-    assert len(engine.tts.condition_calls) == 1
-    assert len(engine.tts.generate_calls) == 3
-    conditioning = engine.tts.condition_calls[0].conditioning
-    assert all(call.conditioning is conditioning for call in engine.tts.generate_calls)
-    assert engine.tts.condition_calls[0].seed == 100
-    assert [call.seed for call in engine.tts.generate_calls] == [100, 101, 102]
+    assert len(engine.backend.tts.condition_calls) == 1
+    assert len(engine.backend.tts.generate_calls) == 3
+    conditioning = engine.backend.tts.condition_calls[0].conditioning
+    assert all(call.conditioning is conditioning for call in engine.backend.tts.generate_calls)
+    assert engine.backend.tts.condition_calls[0].seed == 100
+    assert [call.seed for call in engine.backend.tts.generate_calls] == [100, 101, 102]
 
 
 def test_each_chunk_builds_its_own_conditioning():
     engine = _engine()
     engine.synthesize("one two three four five six seven eight nine ten")
 
-    assert len(engine.tts.condition_calls) >= 2
-    assert len(engine.tts.condition_calls) == len(engine.tts.generate_calls)
+    assert len(engine.backend.tts.condition_calls) >= 2
+    assert len(engine.backend.tts.condition_calls) == len(engine.backend.tts.generate_calls)
     assert all(
         generate_call.conditioning is condition_call.conditioning
         for condition_call, generate_call in zip(
-            engine.tts.condition_calls,
-            engine.tts.generate_calls,
+            engine.backend.tts.condition_calls,
+            engine.backend.tts.generate_calls,
             strict=True,
         )
     )
@@ -316,18 +316,18 @@ def test_prompt_leak_rerolls_with_new_seed_and_same_horizon(monkeypatch):
 
     result = engine.synthesize("x" * 28, instructions="Speak calmly and deliberately")
 
-    calls = engine.tts.generate_calls
+    calls = engine.backend.tts.generate_calls
     assert [call.seed for call in calls] == [100, 101]
     assert calls[0].gen_seconds == pytest.approx(2.0)
     assert calls[1].gen_seconds == pytest.approx(2.0)
 
     chunk = result.timing.chunks[0]
-    assert chunk["attempts"] == 2
-    assert chunk["attempts_detail"][0]["prompt_leak"] is True
-    assert chunk["attempts_detail"][0]["status"] is None
-    assert chunk["attempts_detail"][1]["status"] == "accepted"
-    assert chunk["status"] == "accepted"
-    assert chunk["seed"] == 101
+    assert chunk.attempts == 2
+    assert chunk.attempts_detail[0].prompt_leak is True
+    assert chunk.attempts_detail[0].status is None
+    assert chunk.attempts_detail[1].status == "accepted"
+    assert chunk.status == "accepted"
+    assert chunk.seed == 101
 
 
 def test_non_leak_insertions_shrink_generation_horizon(monkeypatch):
@@ -342,8 +342,8 @@ def test_non_leak_insertions_shrink_generation_horizon(monkeypatch):
 
     engine.synthesize("x" * 28)
 
-    assert engine.tts.generate_calls[0].gen_seconds == pytest.approx(2.0)
-    assert engine.tts.generate_calls[1].gen_seconds == pytest.approx(1.84)
+    assert engine.backend.tts.generate_calls[0].gen_seconds == pytest.approx(2.0)
+    assert engine.backend.tts.generate_calls[1].gen_seconds == pytest.approx(1.84)
 
 
 def test_deletions_grow_generation_horizon(monkeypatch):
@@ -358,8 +358,8 @@ def test_deletions_grow_generation_horizon(monkeypatch):
 
     engine.synthesize("x" * 28)
 
-    assert engine.tts.generate_calls[0].gen_seconds == pytest.approx(2.0)
-    assert engine.tts.generate_calls[1].gen_seconds == pytest.approx(2.2)
+    assert engine.backend.tts.generate_calls[0].gen_seconds == pytest.approx(2.0)
+    assert engine.backend.tts.generate_calls[1].gen_seconds == pytest.approx(2.2)
 
 
 def test_retry_seed_ranges_do_not_collide_between_chunks(monkeypatch):
@@ -372,7 +372,7 @@ def test_retry_seed_ranges_do_not_collide_between_chunks(monkeypatch):
 
     engine.synthesize("one two three four five six seven eight nine ten")
 
-    seeds = [call.seed for call in engine.tts.generate_calls]
+    seeds = [call.seed for call in engine.backend.tts.generate_calls]
     assert seeds[:6] == [100, 101, 102, 103, 104, 105]
 
 
@@ -389,10 +389,10 @@ def test_accepted_retry_wins_over_lower_ranked_failed_candidate(monkeypatch):
     result = engine.synthesize("x" * 28)
 
     chunk = result.timing.chunks[0]
-    assert chunk["status"] == "accepted"
-    assert chunk["seed"] == 101
-    assert chunk["wer"] == pytest.approx(0.1)
-    assert chunk["attempts_detail"][1]["status"] == "accepted"
+    assert chunk.status == "accepted"
+    assert chunk.seed == 101
+    assert chunk.wer == pytest.approx(0.1)
+    assert chunk.attempts_detail[1].status == "accepted"
 
 
 def test_exhausted_retries_keep_best_non_leaking_candidate(monkeypatch):
@@ -409,10 +409,10 @@ def test_exhausted_retries_keep_best_non_leaking_candidate(monkeypatch):
     result = engine.synthesize("x" * 28)
 
     chunk = result.timing.chunks[0]
-    selected = [detail for detail in chunk["attempts_detail"] if detail["status"] is not None]
+    selected = [detail for detail in chunk.attempts_detail if detail.status is not None]
     assert len(selected) == 1
-    assert selected[0]["attempt"] == 2
-    assert selected[0]["status"] == "fallback"
-    assert chunk["status"] == "fallback"
-    assert chunk["prompt_leak"] is False
-    assert chunk["wer"] == pytest.approx(0.3)
+    assert selected[0].attempt == 2
+    assert selected[0].status == "fallback"
+    assert chunk.status == "fallback"
+    assert chunk.prompt_leak is False
+    assert chunk.wer == pytest.approx(0.3)

@@ -109,11 +109,11 @@ def test_acceptance_uses_wer_cer_and_prompt_leak():
         deletions=0,
         insertions=1,
         prompt_leak=False,
-        source="whisper",
-        fallback=False,
+        wer_source="whisper",
+        wer_fallback=False,
     )
-    bad_cer = QualityResult(**{**good.__dict__, "cer": 0.4})
-    leaked = QualityResult(**{**good.__dict__, "prompt_leak": True})
+    bad_cer = good.model_copy(update={"cer": 0.4})
+    leaked = good.model_copy(update={"prompt_leak": True})
 
     assert quality_is_acceptable(good, 0.25) is True
     assert quality_is_acceptable(bad_cer, 0.25) is False
@@ -129,8 +129,8 @@ def test_evaluate_audio_uses_transcription_when_endpoint_is_configured():
         transcribe=lambda *_: "hello world",
     )
 
-    assert quality.source == "whisper"
-    assert quality.fallback is False
+    assert quality.wer_source == "whisper"
+    assert quality.wer_fallback is False
     assert quality.wer == pytest.approx(0.0)
     assert quality.cer == pytest.approx(0.0)
 
@@ -147,7 +147,7 @@ def test_evaluate_audio_falls_back_without_exposing_transcript():
         transcribe=fail,
     )
 
-    assert quality.source == "confidence"
-    assert quality.fallback is True
+    assert quality.wer_source == "confidence"
+    assert quality.wer_fallback is True
     assert quality.cer is None
-    assert "transcript" not in quality.timing_fields()
+    assert "transcript" not in quality.model_dump()

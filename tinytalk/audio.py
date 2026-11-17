@@ -4,6 +4,10 @@ import subprocess
 import wave
 
 import numpy as np
+from numpy.typing import NDArray
+
+type AudioSamples = NDArray[np.float32]
+type AudioArray = NDArray[np.float32 | np.float64 | np.int16]
 
 _MEDIA_TYPES = {
     "wav": "audio/wav",
@@ -17,19 +21,19 @@ _FFMPEG_ARGS = {
 }
 
 
-def silence(sample_rate: int, ms: int, dtype: np.dtype | type) -> np.ndarray:
+def silence(sample_rate: int, ms: int, dtype: np.dtype[np.float32]) -> AudioSamples:
     return np.zeros(int(sample_rate * (ms / 1000.0)), dtype=dtype)
 
 
-def trim_edge_silence(
-    audio: np.ndarray,
+def trim_edge_silence[SampleT: (np.float32, np.float64, np.int16)](
+    audio: NDArray[SampleT],
     sample_rate: int,
     *,
     threshold: float = 0.001,
     keep_ms: int = 180,
     leading: bool = True,
     trailing: bool = True,
-) -> np.ndarray:
+) -> NDArray[SampleT]:
     mono = np.asarray(audio).squeeze()
     levels = np.abs(_as_float(mono))
     voiced = np.flatnonzero(levels > threshold)
@@ -42,7 +46,7 @@ def trim_edge_silence(
     return mono[start:stop]
 
 
-def to_wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
+def to_wav_bytes(audio: AudioArray, sample_rate: int) -> bytes:
     mono = np.asarray(audio).squeeze()
     pcm16 = _to_pcm16(mono)
     out = io.BytesIO()
@@ -85,32 +89,32 @@ def encode_audio(wav_bytes: bytes, response_format: str) -> tuple[bytes, str]:
     return result.stdout, _MEDIA_TYPES[response_format]
 
 
-def _to_pcm16(audio: np.ndarray) -> np.ndarray:
+def _to_pcm16(audio: AudioArray) -> NDArray[np.int16]:
     if audio.dtype == np.int16:
-        return audio
+        return audio.astype(np.int16, copy=False)
     scaled = _as_float(audio)
     return (np.clip(scaled, -1.0, 1.0) * 32767.0).astype(np.int16)
 
 
-def _as_float(audio: np.ndarray) -> np.ndarray:
+def _as_float(audio: AudioArray) -> AudioSamples:
     if np.issubdtype(audio.dtype, np.integer):
         info = np.iinfo(audio.dtype)
         return audio.astype(np.float32) / max(abs(info.min), info.max)
     return audio.astype(np.float32)
 
 
-def chunk_rms(audio: np.ndarray) -> float:
+def chunk_rms(audio: AudioArray) -> float:
     """RMS amplitude of the array."""
     return float(np.sqrt(np.mean(np.asarray(audio, dtype=np.float64) ** 2)))
 
 
-def clip_fraction(audio: np.ndarray, ceiling: float = 0.98) -> float:
+def clip_fraction(audio: AudioArray, ceiling: float = 0.98) -> float:
     """Fraction of samples at or beyond the ceiling (clipping indicator)."""
     return float(np.mean(np.abs(_as_float(audio)) >= ceiling))
 
 
 def duration_ratio(
-    audio: np.ndarray,
+    audio: AudioArray,
     expected_chars: int,
     sample_rate: int = 24000,
     chars_per_second: float = 14.0,
@@ -123,7 +127,7 @@ def duration_ratio(
     return actual_sec / expected_sec
 
 
-def chunk_confidence(audio: np.ndarray, expected_chars: int) -> float:
+def chunk_confidence(audio: AudioArray, expected_chars: int) -> float:
     """
     Returns a confidence score in [0, 1]. Higher = better quality chunk.
     Returns 0.0 for silence, penalises clipping and extreme duration ratios.
@@ -138,7 +142,9 @@ def chunk_confidence(audio: np.ndarray, expected_chars: int) -> float:
     return dur_score * clip_score
 
 
-def edge_fade(audio: np.ndarray, fade_ms: float = 3.0, sample_rate: int = 24000) -> np.ndarray:
+def edge_fade[SampleT: (np.float32, np.float64, np.int16)](
+    audio: NDArray[SampleT], fade_ms: float = 3.0, sample_rate: int = 24000
+) -> NDArray[SampleT]:
     fade_samples = max(int(fade_ms / 1000.0 * sample_rate), 1)
     if len(audio) <= 2 * fade_samples:
         return audio.copy()
@@ -148,7 +154,7 @@ def edge_fade(audio: np.ndarray, fade_ms: float = 3.0, sample_rate: int = 24000)
     return result
 
 
-def loudness_normalize(audio: np.ndarray, target_rms: float = 0.08) -> np.ndarray:
+def loudness_normalize(audio: AudioArray, target_rms: float = 0.08) -> AudioSamples:
     audio_f = np.asarray(audio, dtype=np.float64)
     rms = float(np.sqrt(np.mean(audio_f**2)))
     if rms < 1e-6:
@@ -157,5 +163,5 @@ def loudness_normalize(audio: np.ndarray, target_rms: float = 0.08) -> np.ndarra
     return np.clip(result, -1.0, 1.0).astype(np.float32)
 
 
-def peak_limit(audio: np.ndarray, ceiling: float = 0.98) -> np.ndarray:
+def peak_limit(audio: AudioArray, ceiling: float = 0.98) -> AudioSamples:
     return np.clip(np.asarray(audio, dtype=np.float64), -ceiling, ceiling).astype(np.float32)

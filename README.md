@@ -11,6 +11,10 @@ Supported backends:
   [`datGryphon/tinytauk`](https://github.com/datGryphon/tinytauk);
 - **OmniVoice** — multilingual auto voice, constrained attribute-based voice
   design, and optional reference-audio voice cloning through `k2-fsa/OmniVoice`.
+- **Silencio-2** — CPU speech with cached bundled/reference conditioning and
+  native inline vocal events and emotions.
+- **Chatterbox Nano** — CPU speech with resident bundled/reference conditioning,
+  native vocal events and upstream PerTh watermarking.
 
 The flake exports `nixosModules.default`.
 
@@ -36,18 +40,18 @@ runtime. The project pins the qualified Torch/Torchaudio/Transformers versions,
 the PyTorch CPU index, the NeuCodec fork, and backend package versions once.
 Development, CI, and the NixOS service all consume that same lock.
 
-From a source checkout, sync only the backend you need:
+From a source checkout, install the shared development environment:
 
 ```bash
-uv sync --frozen --extra neutts
-uv sync --frozen --extra tinytauk
-uv sync --frozen --extra omnivoice
+uv sync --frozen --all-extras
 ```
 
-For development, add the `test` extra. To validate coexistence of all three
-backends, select all three extras in the same sync.
+All five backends and the tests coexist in one `.venv`. Select the resident
+backend with `TINYTALK_BACKEND` (default `neutts`); changing it does not require
+another development environment.
 
-The base `tinytalk` project remains backend-light. Backend imports are lazy, so
+For minimal deployments, the NixOS service installs only the selected backend's
+extra into its single persistent `.venv`. Backend imports are lazy, so
 selecting a backend whose extra is not installed fails with an actionable error.
 Plain `pip install 'tinytalk[backend]'` does not consume uv's project-level
 metadata overrides and is therefore not the qualified installation path while
@@ -98,7 +102,7 @@ semantic prompt.
 
 The accepted request `speed` range is `0.25` to `4.0`.
 
-All backends use the same speech-quality evaluator. When `werEndpoint` is set,
+NeuTTS, TinyTAuK and OmniVoice use the same speech-quality evaluator. When `werEndpoint` is set,
 TinyTalk transcribes candidate audio through an OpenAI-compatible transcription
 endpoint and scores WER/CER before accepting or rerolling a chunk. With no
 endpoint configured, the legacy local confidence heuristic is used instead.
@@ -212,7 +216,7 @@ Key options:
 
 | Option | Default | Notes |
 | --- | --- | --- |
-| `backend` | `neutts` | `neutts`, `tinytauk`, or `omnivoice` |
+| `backend` | `neutts` | `neutts`, `tinytauk`, `omnivoice`, `silencio2`, or `chatterbox_nano` |
 | `maxCharsPerChunk` | `180` | Max chars per synthesis call |
 | `interChunkSilenceMs` | `60` | Silence between chunks |
 | `maxRetries` | `2` | Quality-gated retries per chunk |
@@ -274,30 +278,13 @@ tags `vX.Y.Z`, and creates the GitHub release. PyPI publishing is not configured
 
 ## Development
 
-All shells use Python 3.13 and run `uv sync --frozen` against the checked-in
-lock. They retain separate virtual environments for backend-aware tests; CI also
-checks that all three backends can be synced and tested together from the same
-locked dependency graph.
-
-NeuTTS/default environment:
+The development shell uses Python 3.13 and syncs all five backends and tests
+into one `.venv` from the checked-in lock. Native and Nix CI each run the full
+unit suite once in that combined environment.
 
 ```bash
 nix develop
-pytest
-```
-
-TinyTAuK environment:
-
-```bash
-nix develop .#tinytauk
-pytest
-```
-
-OmniVoice environment:
-
-```bash
-nix develop .#omnivoice
-pytest tests/test_quality.py tests/test_backend_api.py tests/test_config.py tests/test_omnivoice_backend.py
+pytest tests --ignore=tests/integration
 ```
 
 Real NeuTTS integration:
@@ -323,3 +310,56 @@ pytest tests/integration/test_omnivoice_real_speech.py
 Set `TINYTALK_WER_ENDPOINT` during real integration runs when the live shared
 WER/CER transcription path also needs validation. Artifacts are written under
 `test_artifacts/`.
+## Silencio-2 CPU Backend
+
+Select `TINYTALK_BACKEND=silencio2` in the shared environment.
+`TINYTALK_SILENCIO2_VOICE` selects an upstream bundled ID (default `260`) or a
+local reference-audio path. NixOS exposes `services.tinytalk.silencio2Voice`.
+The configured voice is encoded at startup and reused; HTTP `voice` is ignored.
+
+TinyTalk loads the original `silencio2` Python package directly from the pinned
+Hugging Face snapshot `20930f5f6a6bb564f2a8207152fd5c5d8eecff03`. Upstream does
+not publish an installable Python distribution, so the optional extra declares
+its inference dependencies, while the snapshot supplies code, weights and bundled
+reference clips. Initial startup needs network/cache access to Hugging Face.
+No upstream source is copied into TinyTalk.
+
+Native sounds (`[laugh]`, `[sigh]`, `[gasp]`, `[cough]`, `[clear_throat]`) and
+delivery tags (`<happy>`, `<sad>`, `<angry>`, `<fear>`, `<surprised>`, `<whisper>`)
+belong in `input`, including with a configured reference. Nonempty `instructions`
+and speed other than `1.0` are unsupported. Output retains upstream's native
+24 kHz audio without loudness normalization or TinyTalk quality retries.
+The shared tagged-input splitter keeps tags atomic; active Silencio emotions
+carry across TinyTalk chunks. A repeated emotion prefix can add a few characters
+to the configured text budget.
+
+Silencio-2 weights are CC-BY-4.0, based on Kyutai Pocket TTS; its core code is
+MIT. Retain upstream attribution and notices when redistributing model assets:
+<https://huggingface.co/BlueRoseLabs/Silencio-2/blob/main/NOTICE.md>.
+
+## Chatterbox Nano CPU Backend
+
+Select `TINYTALK_BACKEND=chatterbox_nano` in the shared environment. The optional
+`TINYTALK_CHATTERBOX_NANO_REF_AUDIO` (`services.tinytalk.chatterboxNanoRefAudio`)
+selects a local reference clip longer than five seconds. With no reference,
+upstream's bundled conditioning is used. HTTP `voice` is ignored.
+
+TinyTalk pins upstream Chatterbox source to
+`ab55923c27757c90cfcc407baa57dc25a7d25217`; the released 0.1.7 wheel lacks
+`nano=True`. The adapter calls `ChatterboxTurboTTS.from_pretrained(device="cpu",
+nano=True)` and encodes a configured reference once during load. Calls then reuse
+that conditioning without reference-file reads. Reference normalization is
+disabled through upstream's public `norm_loudness=False` option, avoiding the
+observed normalization dtype mismatch and preserving the supplied clip's level.
+
+This backend is verified on TinyTalk's Python 3.13, Torch/Torchaudio 2.11 and
+Transformers 5.17 stack. Dependency overrides retain existing Perth 1.0.1 and
+allow Safetensors >=0.8 as required by Transformers, rather than installing a
+second ML stack. Upstream generation, vocal-event tags and watermarking remain
+unchanged; there are no TinyTalk DSP transforms or quality retries. Put tags such
+as `[laugh]` in `input`; nonempty `instructions` and non-unit speed are unsupported.
+
+Chatterbox code/model licensing is MIT; consult upstream asset notices. The pinned
+upstream README declares the research repository unmaintained. Its full Nano
+snapshot is approximately 3 GB and qualification used approximately 4.2 GB peak
+process memory; these are development-host observations, not capacity guarantees.
