@@ -13,7 +13,6 @@ def _env_name(field: str) -> str:
     return f"TINYTALK_{field.upper()}"
 
 
-
 class VoicePreset(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -37,30 +36,27 @@ class VoiceConfig(BaseModel):
     def validate_voices(self) -> "VoiceConfig":
         if self.default not in self.voices:
             raise ValueError("default voice must be present in voices")
-        fields = {
-            "neutts": {"ref_codes", "ref_text"},
-            "tinytauk": {"description"},
-            "omnivoice": {"ref_audio", "ref_text"},
-            "silencio2": {"voice_id"},
-            "chatterbox_nano": {"ref_audio"},
+        required = {
+            "neutts": ("ref_codes", "ref_text"),
+            "tinytauk": (),
+            "omnivoice": ("ref_audio", "ref_text"),
+            "silencio2": ("voice_id",),
+            "chatterbox_nano": ("ref_audio",),
         }[self.backend]
+        allowed = set(required) | ({"description"} if self.backend == "tinytauk" else set())
+
         for name, preset in self.voices.items():
             if not name.strip():
                 raise ValueError("voice names cannot be empty")
-            configured = {
-                key for key in ("ref_codes", "ref_text", "ref_audio", "voice_id", "description")
-                if getattr(preset, key) is not None
-            }
-            if not configured <= fields:
+            missing = [field for field in required if getattr(preset, field) is None]
+            if missing:
+                raise ValueError(f"voice {name!r} requires {', '.join(required)}")
+            unsupported = [
+                field for field in ("ref_codes", "ref_text", "ref_audio", "voice_id", "description")
+                if field not in allowed and getattr(preset, field) is not None
+            ]
+            if unsupported:
                 raise ValueError(f"voice {name!r} has unsupported fields for {self.backend}")
-            if self.backend in ("neutts", "omnivoice"):
-                pair = ("ref_codes", "ref_text") if self.backend == "neutts" else ("ref_audio", "ref_text")
-                if any(getattr(preset, key) is None for key in pair):
-                    raise ValueError(f"voice {name!r} requires {pair[0]} and {pair[1]}")
-            elif self.backend == "silencio2" and not preset.voice_id:
-                raise ValueError(f"voice {name!r} requires voice_id")
-            elif self.backend == "chatterbox_nano" and preset.ref_audio is None:
-                raise ValueError(f"voice {name!r} requires ref_audio")
         return self
 
 
@@ -123,7 +119,8 @@ def load_settings() -> Settings:
 def load_voice_config(settings: Settings) -> VoiceConfig | None:
     if settings.voices_file is None:
         return None
-    config = VoiceConfig.model_validate(json.loads(settings.voices_file.read_text(encoding="utf-8")))
+    data = json.loads(settings.voices_file.read_text(encoding="utf-8"))
+    config = VoiceConfig.model_validate(data)
     if config.backend != settings.backend:
         raise ValueError("voice configuration backend does not match TINYTALK_BACKEND")
     return config
