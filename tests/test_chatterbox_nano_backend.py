@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -15,13 +17,17 @@ class Model:
         self.sr = 24000
         self.generate_calls = []
         self.prepare_calls = []
+        self.conds = "bundled"
+        self.generated_conditionals = []
 
     def generate(self, text, **kwargs):
         self.generate_calls.append((text, kwargs))
+        self.generated_conditionals.append(self.conds)
         return torch.full((240,), 0.1)
 
     def prepare_conditionals(self, path, **kwargs):
         self.prepare_calls.append((path, kwargs))
+        self.conds = path
 
 
 def _engine(monkeypatch, model, **overrides):
@@ -102,6 +108,30 @@ def test_reference_prepared_once_with_native_levels(monkeypatch, tmp_path):
     path, kwargs = model.prepare_calls[0]
     assert path == str(ref)
     assert kwargs == {"exaggeration": 0.0, "norm_loudness": False}
+
+
+def test_named_references_prepared_once_and_selected_per_request(monkeypatch, tmp_path):
+    first = tmp_path / "first.wav"
+    second = tmp_path / "second.wav"
+    first.touch()
+    second.touch()
+    config = tmp_path / "voices.json"
+    config.write_text(json.dumps({
+        "backend": "chatterbox_nano", "default": "first",
+        "voices": {
+            "first": {"ref_audio": str(first)},
+            "second": {"ref_audio": str(second)},
+        },
+    }))
+    model = Model()
+    instance, _, loads = _engine(monkeypatch, model, voices_file=config)
+    instance.load()
+    instance.synthesize("Hello.")
+    instance.synthesize("Hello.", voice="second")
+    instance.synthesize("Hello.")
+    assert [call[0] for call in model.prepare_calls] == [str(first), str(second)]
+    assert model.generated_conditionals == [str(first), str(second), str(first)]
+    assert len(loads) == 1
 
 
 def test_missing_reference_rejected(monkeypatch, tmp_path):

@@ -9,7 +9,7 @@ from tinytauk import TinyTAuK
 
 from .. import engine as engine_module
 from ..audio import AudioSamples, edge_fade, peak_limit, trim_edge_silence
-from ..config import Settings
+from ..config import Settings, TinyTAuKVoice, VoiceConfig, load_voice_config
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, QualityTiming
@@ -29,10 +29,15 @@ _DURATION_MAX_FACTOR = 1.25
 
 class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
     tts: TinyTAuK | None
+    voices: VoiceConfig[TinyTAuKVoice] | None
+    descriptions: dict[str | None, str | None]
 
     def __init__(self, settings: Settings) -> None:
-        super().__init__(settings, settings.tinytauk_model)
+        super().__init__(settings, settings.tinytauk_model, load_voice_config(settings, TinyTAuKVoice))
         self.tts = None
+        self.descriptions = {None: None} if self.voices is None else {
+            name: preset.description for name, preset in self.voices.voices.items()
+        }
 
     @override
     def load(self) -> None:
@@ -61,12 +66,15 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
         *,
         instructions: str | None,
         speed: float | None,
+        voice: str | None = None,
     ) -> SynthesisRequest:
         speed_value = 1.0 if speed is None else speed
         if speed_value <= 0:
             raise ValueError("speed must be positive")
 
-        return SynthesisRequest(instructions=instructions, speed=speed_value)
+        return SynthesisRequest(
+            instructions=instructions or self.descriptions[voice], speed=speed_value, voice=voice
+        )
 
     @override
     def synthesize_chunk(
@@ -79,9 +87,7 @@ class TinyTAuKBackend(SpeechBackend[SynthesisRequest]):
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
 
-        instructions = request.instructions or (
-            request.voice.description if request.voice is not None else None
-        )
+        instructions = request.instructions
         speed = request.speed if request.speed is not None else 1.0
         description = self._description(instructions)
         base_duration = self._duration_seconds(chunk_text, speed)

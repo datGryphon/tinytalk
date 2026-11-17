@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 from . import __version__
 from .audio import encode_audio, to_wav_bytes
 from .config import load_settings
-from .engine import SynthesisResult, create_engine
+from .engine import SynthesisResult, UnknownVoiceError, create_engine
 from .timing import RequestLog
 
 settings = load_settings()
@@ -75,10 +75,6 @@ async def health() -> Response:
 
 @app.post("/v1/audio/speech")
 async def create_speech(payload: SpeechRequest) -> Response:
-    try:
-        engine.resolve_voice(payload.voice)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     request_start = time.perf_counter()
     result: SynthesisResult | None = None
     try:
@@ -92,6 +88,8 @@ async def create_speech(payload: SpeechRequest) -> Response:
             )
         wav = to_wav_bytes(result.audio, result.sample_rate)
         body, media_type = await run_in_threadpool(encode_audio, wav, payload.response_format)
+    except UnknownVoiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         log.info(RequestLog(
             elapsed=time.perf_counter() - request_start,

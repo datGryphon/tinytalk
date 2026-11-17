@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import override
 
 import numpy as np
 import torch
 from neutts import NeuTTS
+from pydantic import BaseModel, ConfigDict
 
 from .. import engine as engine_module
 from ..audio import (
@@ -16,43 +16,39 @@ from ..audio import (
     peak_limit,
     trim_edge_silence,
 )
-from ..config import Settings
+from ..config import NeuTTSVoice, Settings, VoiceConfig, load_voice_config
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, QualityTiming
 from .neutts_audio import compute_f0_mean, normalize_f0
 
 
+class NeuTTSReference(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    codes: list[int]
+    text: str
+
+
 class NeuTTSRequest(SynthesisRequest):
+    reference: NeuTTSReference
     previous_f0_mean: float | None = None
 
 
 class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
     tts: NeuTTS | None
-    ref_codes: list[int] | None
-    ref_text: str | None
-    voice_references: dict[Path, tuple[list[int], str]]
+    voices: VoiceConfig[NeuTTSVoice] | None
+    references: dict[str | None, NeuTTSReference]
 
     def __init__(self, settings: Settings) -> None:
-        super().__init__(settings, settings.model)
+        super().__init__(settings, settings.model, load_voice_config(settings, NeuTTSVoice))
         self.tts = None
-        self.ref_codes = None
-        self.ref_text = None
-        self.voice_references = {}
+        self.references = {}
 
     @override
     def load(self) -> None:
-        if self.voices is None:
-            self._validate_reference_files()
-            self.ref_codes, self.ref_text = self._read_reference(
-                self.settings.ref_codes, self.settings.ref_text
-            )
-        else:
-            for preset in self.voices.voices.values():
-                assert preset.ref_codes is not None and preset.ref_text is not None
-                self.voice_references[preset.ref_codes] = self._read_reference(
-                    preset.ref_codes, preset.ref_text
-                )
+        presets = self._reference_presets()
+        self.references = {name: self._read_reference(preset) for name, preset in presets.items()}
 
         self.tts = NeuTTS(
             backbone_repo=self.settings.model,
@@ -69,6 +65,11 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
         self.sample_rate = int(getattr(self.tts, "sample_rate", 24_000))
         self._apply_generation_settings(self.tts)
         self.loaded = True
+
+    def _reference_presets(self) -> dict[str | None, NeuTTSVoice]:
+        if self.voices is not None:
+            return dict(self.voices.voices)
+        return {None: NeuTTSVoice(ref_codes=self.settings.ref_codes, ref_text=self.settings.ref_text)}
 
     def _apply_generation_settings(
         self,
@@ -102,10 +103,11 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
         *,
         instructions: str | None,
         speed: float | None,
+        voice: str | None = None,
     ) -> NeuTTSRequest:
         del instructions, speed  # NeuTTS has no equivalent stable controls.
 
-        return NeuTTSRequest(instructions=None, speed=None)
+        return NeuTTSRequest(instructions=None, speed=None, voice=voice, reference=self.references[voice])
 
     @override
     def synthesize_chunk(
@@ -115,13 +117,9 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
         index: int,
         num_chunks: int,
     ) -> ChunkResult:
-        if request.voice is not None and request.voice.ref_codes is not None:
-            reference = self.voice_references[request.voice.ref_codes]
-            wav, timing, fallbacks = self._synthesize_chunk(
-                chunk_text, index, num_chunks, reference=reference
-            )
-        else:
-            wav, timing, fallbacks = self._synthesize_chunk(chunk_text, index, num_chunks)
+        wav, timing, fallbacks = self._synthesize_chunk(
+            request.reference, chunk_text, index, num_chunks
+        )
         f0_start = time.perf_counter()
         if request.previous_f0_mean is not None:
             wav = normalize_f0(wav, self.sample_rate, request.previous_f0_mean)
@@ -138,11 +136,10 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
 
     def _synthesize_chunk(
         self,
+        reference: NeuTTSReference,
         chunk_text: str,
         index: int,
         num_chunks: int,
-        *,
-        reference: tuple[list[int] | None, str | None] | None = None,
     ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
@@ -171,7 +168,7 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
             try:
                 infer_start = time.perf_counter()
                 try:
-                    raw = self.tts.infer(chunk_text, *(reference or (self.ref_codes, self.ref_text)))
+                    raw = self.tts.infer(chunk_text, reference.codes, reference.text)
                 finally:
                     t_infer = time.perf_counter() - infer_start
 
@@ -253,24 +250,13 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
             transcribe=engine_module.transcribe_chunk,
         )
 
-    def _validate_reference_files(self) -> None:
-        for path_name, path in (
-            ("TINYTALK_REF_CODES", self.settings.ref_codes),
-            ("TINYTALK_REF_TEXT", self.settings.ref_text),
-        ):
-            if not Path(path).is_file():
-                raise RuntimeError(f"{path_name} does not exist: {path}")
-
     @staticmethod
-    def _read_reference(codes_path: Path, text_path: Path) -> tuple[list[int], str]:
-        for path in (codes_path, text_path):
-            if not path.is_file():
-                raise ValueError(f"NeuTTS reference file does not exist: {path}")
+    def _read_reference(preset: NeuTTSVoice) -> NeuTTSReference:
         codes = (
-            torch.load(codes_path, map_location="cpu")
+            torch.load(preset.ref_codes, map_location="cpu")
             .detach().cpu().flatten().to(torch.long).tolist()
         )
-        text = text_path.read_text(encoding="utf-8").strip()
+        text = preset.ref_text.read_text(encoding="utf-8").strip()
         if not text:
-            raise ValueError(f"reference text is empty: {text_path}")
-        return codes, text
+            raise ValueError(f"reference text is empty: {preset.ref_text}")
+        return NeuTTSReference(codes=codes, text=text)

@@ -1,9 +1,10 @@
-import json
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel, ConfigDict, Field, FilePath, StringConstraints, field_validator, model_validator,
+)
 
 
 Backend = Literal["neutts", "tinytauk", "omnivoice", "silencio2", "chatterbox_nano"]
@@ -16,48 +17,53 @@ def _env_name(field: str) -> str:
 class VoicePreset(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    ref_codes: Path | None = None
-    ref_text: Path | None = None
-    ref_audio: Path | None = None
-    voice_id: str | None = None
-    description: str | None = None
     max_chars_per_chunk: int | None = Field(default=None, gt=0)
     inter_chunk_silence_ms: int | None = Field(default=None, ge=0)
 
 
-class VoiceConfig(BaseModel):
+class NeuTTSVoice(VoicePreset):
+    ref_codes: FilePath
+    ref_text: FilePath
+
+
+class OmniVoicePreset(VoicePreset):
+    ref_audio: FilePath
+    ref_text: FilePath
+
+
+class ChatterboxVoice(VoicePreset):
+    ref_audio: FilePath
+
+
+class SilencioVoice(VoicePreset):
+    voice_id: Annotated[str, StringConstraints(min_length=1)]
+
+
+class TinyTAuKVoice(VoicePreset):
+    description: str | None = None
+
+
+class VoiceConfig[PresetT: VoicePreset](BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     backend: Backend
     default: str
-    voices: dict[str, VoicePreset]
+    voices: dict[Annotated[str, StringConstraints(min_length=1, pattern=r"\S")], PresetT]
 
     @model_validator(mode="after")
-    def validate_voices(self) -> "VoiceConfig":
+    def validate_default(self) -> Self:
         if self.default not in self.voices:
             raise ValueError("default voice must be present in voices")
-        required = {
-            "neutts": ("ref_codes", "ref_text"),
-            "tinytauk": (),
-            "omnivoice": ("ref_audio", "ref_text"),
-            "silencio2": ("voice_id",),
-            "chatterbox_nano": ("ref_audio",),
-        }[self.backend]
-        allowed = set(required) | ({"description"} if self.backend == "tinytauk" else set())
-
-        for name, preset in self.voices.items():
-            if not name.strip():
-                raise ValueError("voice names cannot be empty")
-            missing = [field for field in required if getattr(preset, field) is None]
-            if missing:
-                raise ValueError(f"voice {name!r} requires {', '.join(required)}")
-            unsupported = [
-                field for field in ("ref_codes", "ref_text", "ref_audio", "voice_id", "description")
-                if field not in allowed and getattr(preset, field) is not None
-            ]
-            if unsupported:
-                raise ValueError(f"voice {name!r} has unsupported fields for {self.backend}")
         return self
+
+
+type NamedVoices = (
+    VoiceConfig[NeuTTSVoice]
+    | VoiceConfig[OmniVoicePreset]
+    | VoiceConfig[ChatterboxVoice]
+    | VoiceConfig[SilencioVoice]
+    | VoiceConfig[TinyTAuKVoice]
+)
 
 
 class Settings(BaseModel):
@@ -116,11 +122,12 @@ def load_settings() -> Settings:
     })
 
 
-def load_voice_config(settings: Settings) -> VoiceConfig | None:
+def load_voice_config[PresetT: VoicePreset](
+    settings: Settings, preset_type: type[PresetT]
+) -> VoiceConfig[PresetT] | None:
     if settings.voices_file is None:
         return None
-    data = json.loads(settings.voices_file.read_text(encoding="utf-8"))
-    config = VoiceConfig.model_validate(data)
+    config = VoiceConfig[preset_type].model_validate_json(settings.voices_file.read_bytes())
     if config.backend != settings.backend:
         raise ValueError("voice configuration backend does not match TINYTALK_BACKEND")
     return config

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from tinytalk.config import Settings
-from tinytalk.backends.neutts import NeuTTSBackend, NeuTTSRequest
+from tinytalk.backends.neutts import NeuTTSBackend, NeuTTSReference, NeuTTSRequest
 from tinytalk.engine import SpeechEngine
 from tinytalk.quality import QualityResult
 from tinytalk.timing import ChunkTiming
@@ -24,8 +24,7 @@ def _engine(*, max_retries: int = 0) -> SpeechEngine[NeuTTSRequest]:
     )
     engine = SpeechEngine(NeuTTSBackend(settings))
     engine.backend.tts = MagicMock()
-    engine.backend.ref_codes = [1, 2, 3]
-    engine.backend.ref_text = "test reference"
+    engine.backend.references[None] = NeuTTSReference(codes=[1, 2, 3], text="test reference")
     engine.backend.sample_rate = 24_000
     engine.backend.loaded = True
     return engine
@@ -100,7 +99,7 @@ def test_f0_continuity_resets_between_requests():
     audio = _audio()
 
     with (
-        patch.object(engine.backend, "_synthesize_chunk", side_effect=lambda text, index, count: (
+        patch.object(engine.backend, "_synthesize_chunk", side_effect=lambda reference, text, index, count: (
             audio, ChunkTiming(index=index, attempts=1, duration=1.0, status="accepted"), 0
         )),
         patch.object(engine.backend, "_apply_generation_settings"),

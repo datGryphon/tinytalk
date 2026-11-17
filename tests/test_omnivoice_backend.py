@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -15,10 +16,13 @@ class FakeOmniVoiceModel:
     def __init__(self):
         self.generate_calls = []
         self.clone_calls = []
+        self.clone_prompts = []
 
     def create_voice_clone_prompt(self, *, ref_audio, ref_text):
         self.clone_calls.append({"ref_audio": ref_audio, "ref_text": ref_text})
-        return {"cached": True}
+        prompt = {"cached": True}
+        self.clone_prompts.append(prompt)
+        return prompt
 
     def generate(self, **kwargs):
         self.generate_calls.append(kwargs)
@@ -152,6 +156,36 @@ def test_design_instruction_overrides_configured_clone(monkeypatch, tmp_path: Pa
     call = FakeOmniVoice.model.generate_calls[-1]
     assert call["instruct"] == "female, elderly, low pitch"
     assert call["voice_clone_prompt"] is None
+
+
+def test_named_clone_prompts_are_selected_without_mutating_backend(monkeypatch, tmp_path):
+    audio = tmp_path / "ref.wav"
+    audio.write_bytes(b"RIFF")
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_text("First transcript.")
+    second.write_text("Second transcript.")
+    config = tmp_path / "voices.json"
+    config.write_text(json.dumps({
+        "backend": "omnivoice", "default": "first",
+        "voices": {
+            "first": {"ref_audio": str(audio), "ref_text": str(first)},
+            "second": {"ref_audio": str(audio), "ref_text": str(second)},
+        },
+    }))
+    engine = make_engine(monkeypatch, Settings(backend="omnivoice", voices_file=config))
+    model = FakeOmniVoice.model
+    engine.synthesize("hello world")
+    engine.synthesize("hello world", voice="second")
+    engine.synthesize("hello world", voice="first", instructions="female")
+    engine.synthesize("hello world")
+
+    assert [call["ref_text"] for call in model.clone_calls] == ["First transcript.", "Second transcript."]
+    prompts = [call["voice_clone_prompt"] for call in model.generate_calls]
+    assert prompts[0] is model.clone_prompts[0]
+    assert prompts[1] is model.clone_prompts[1]
+    assert prompts[2] is None
+    assert prompts[3] is model.clone_prompts[0]
 
 
 def test_upstream_instruction_validation_errors_are_not_swallowed(monkeypatch):

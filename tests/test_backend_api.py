@@ -21,7 +21,7 @@ class FakeControlledEngine:
     def load(self):
         self.loaded = True
 
-    def synthesize(self, text, *, instructions=None, speed=None):
+    def synthesize(self, text, *, instructions=None, speed=None, voice=None):
         self.last_instructions = instructions
         self.last_speed = speed
         return SynthesisResult(

@@ -19,8 +19,8 @@ class StubBackend(SpeechBackend[SynthesisRequest]):
     def load(self) -> None:
         self.loaded = True
 
-    def prepare_request(self, *, instructions: str | None, speed: float | None) -> SynthesisRequest:
-        return SynthesisRequest(instructions=instructions, speed=speed)
+    def prepare_request(self, *, instructions: str | None, speed: float | None, voice: str | None = None) -> SynthesisRequest:
+        return SynthesisRequest(instructions=instructions, speed=speed, voice=voice)
 
     def synthesize_chunk(
         self, request: SynthesisRequest, chunk_text: str, index: int, num_chunks: int,

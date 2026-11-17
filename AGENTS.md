@@ -70,6 +70,10 @@ feature flags unrelated to real backend differences.
 - Keep request-local state in `SynthesisRequest` (or a typed subclass when
   needed). Never duplicate the engine's synthesis loop in a backend. Cleanup
   belongs in `finalize_request()`, which runs even when synthesis fails.
+- Validate named voice presets against the selected backend's Pydantic schema.
+  Resolve the name once in the engine; prepare backend-specific conditioning at
+  load and select it by name for each request. Preserve single-reference
+  behavior when no named voices are configured.
 - Silencio-2 uses the original package from its pinned Hugging Face snapshot,
   which has no Python distribution metadata. Its extra supplies dependencies.
   Cache the configured voice during load, preserve inline tags across shared
@@ -207,6 +211,7 @@ Shared:
 | Env var | NixOS option | Default |
 | --- | --- | --- |
 | `TINYTALK_BACKEND` | `services.tinytalk.backend` | `neutts` |
+| `TINYTALK_VOICES_FILE` | `services.tinytalk.voices` / `defaultVoice` | unset |
 | `TINYTALK_HOST` | `services.tinytalk.host` | `0.0.0.0` |
 | `TINYTALK_PORT` | `services.tinytalk.port` | `9002` |
 | `TINYTALK_MAX_CHARS_PER_CHUNK` | `services.tinytalk.maxCharsPerChunk` | `180` |

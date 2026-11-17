@@ -26,13 +26,41 @@ let
       description = "Static named voice presets for the selected backend.";
       type = lib.types.attrsOf (lib.types.submodule {
         options = {
-          refCodes = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
-          refText = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
-          refAudio = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
-          voiceId = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
-          description = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
-          maxCharsPerChunk = lib.mkOption { type = lib.types.nullOr lib.types.ints.positive; default = null; };
-          interChunkSilenceMs = lib.mkOption { type = lib.types.nullOr lib.types.ints.unsigned; default = null; };
+          refCodes = lib.mkOption {
+            type = lib.types.nullOr lib.types.path;
+            default = null;
+            description = "NeuTTS reference codes.";
+          };
+          refText = lib.mkOption {
+            type = lib.types.nullOr lib.types.path;
+            default = null;
+            description = "Reference transcript for NeuTTS or OmniVoice.";
+          };
+          refAudio = lib.mkOption {
+            type = lib.types.nullOr lib.types.path;
+            default = null;
+            description = "Reference audio for OmniVoice or Chatterbox Nano.";
+          };
+          voiceId = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "Silencio-2 bundled voice ID or reference audio path.";
+          };
+          description = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "TinyTAuK voice description.";
+          };
+          maxCharsPerChunk = lib.mkOption {
+            type = lib.types.nullOr lib.types.ints.positive;
+            default = null;
+            description = "Override the service chunk length for this voice.";
+          };
+          interChunkSilenceMs = lib.mkOption {
+            type = lib.types.nullOr lib.types.ints.unsigned;
+            default = null;
+            description = "Override the service inter-chunk silence for this voice.";
+          };
         };
       });
     };
@@ -425,6 +453,7 @@ in
       {
         assertion =
           cfg.backend != "omnivoice"
+          || cfg.voices != { }
           || ((cfg.omnivoiceRefAudio == null) == (cfg.omnivoiceRefText == null));
         message = "services.tinytalk.omnivoiceRefAudio and omnivoiceRefText must be configured together";
       }
