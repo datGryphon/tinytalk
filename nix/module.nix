@@ -15,6 +15,28 @@ let
       description = "Synthesis backend for this service instance.";
     };
 
+    defaultVoice = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Default named voice when voices are configured.";
+    };
+
+    voices = lib.mkOption {
+      default = { };
+      description = "Static named voice presets for the selected backend.";
+      type = lib.types.attrsOf (lib.types.submodule {
+        options = {
+          refCodes = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
+          refText = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
+          refAudio = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
+          voiceId = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
+          description = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
+          maxCharsPerChunk = lib.mkOption { type = lib.types.nullOr lib.types.ints.positive; default = null; };
+          interChunkSilenceMs = lib.mkOption { type = lib.types.nullOr lib.types.ints.unsigned; default = null; };
+        };
+      });
+    };
+
     host = lib.mkOption {
       type = lib.types.str;
       default = "0.0.0.0";
@@ -216,12 +238,28 @@ let
     };
   };
 
+  voiceFile = pkgs.writeText "tinytalk-voices.json" (builtins.toJSON {
+    backend = cfg.backend;
+    default = cfg.defaultVoice;
+    voices = lib.mapAttrs (_: voice: lib.filterAttrs (_: value: value != null) {
+      ref_codes = voice.refCodes;
+      ref_text = voice.refText;
+      ref_audio = voice.refAudio;
+      voice_id = voice.voiceId;
+      description = voice.description;
+      max_chars_per_chunk = voice.maxCharsPerChunk;
+      inter_chunk_silence_ms = voice.interChunkSilenceMs;
+    }) cfg.voices;
+  });
+
   commonEnvironment = {
     TINYTALK_BACKEND = cfg.backend;
     TINYTALK_HOST = cfg.host;
     TINYTALK_PORT = toString cfg.port;
     TINYTALK_MAX_CHARS_PER_CHUNK = toString cfg.maxCharsPerChunk;
     TINYTALK_INTER_CHUNK_SILENCE_MS = toString cfg.interChunkSilenceMs;
+  } // lib.optionalAttrs (cfg.voices != { }) {
+    TINYTALK_VOICES_FILE = toString voiceFile;
   };
 
   qualityEnvironment = {
@@ -358,6 +396,14 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = (cfg.voices == { }) == (cfg.defaultVoice == null);
+        message = "services.tinytalk: voices and defaultVoice must be configured together";
+      }
+      {
+        assertion = cfg.defaultVoice == null || builtins.hasAttr cfg.defaultVoice cfg.voices;
+        message = "services.tinytalk: defaultVoice must name a configured voice";
+      }
       {
         assertion = cfg.backend != "neutts"
           || ((cfg.backboneDevice == "gpu") == (cfg.llamaCppBackend != "cpu"));
