@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import override
 
 import numpy as np
@@ -10,7 +9,7 @@ from omnivoice.models.omnivoice import OmniVoice, VoiceClonePrompt
 
 from .. import engine as engine_module
 from ..audio import AudioArray, AudioSamples, edge_fade, peak_limit, trim_edge_silence
-from ..config import Settings
+from ..config import OmniVoicePreset, Settings, VoiceConfig, load_voice_config
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, VoiceMode
@@ -21,16 +20,17 @@ _MAX_RETRY_CLASS_TEMPERATURE = 1.0
 
 class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
     tts: OmniVoice | None
-    voice_clone_prompt: VoiceClonePrompt | None
+    voices: VoiceConfig[OmniVoicePreset] | None
+    voice_prompts: dict[str | None, VoiceClonePrompt | None]
 
     def __init__(self, settings: Settings) -> None:
-        super().__init__(settings, settings.omnivoice_model)
+        super().__init__(settings, settings.omnivoice_model, load_voice_config(settings, OmniVoicePreset))
         self.tts = None
-        self.voice_clone_prompt = None
+        self.voice_prompts = {}
 
     @override
     def load(self) -> None:
-        self._validate_reference_config()
+        presets = self._reference_presets()
         device = self.settings.omnivoice_device.strip() or "cpu"
         dtype = torch.float32 if device == "cpu" else torch.float16
         self.tts = OmniVoice.from_pretrained(
@@ -40,17 +40,33 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         )
         self.sample_rate = int(self.tts.sampling_rate)
 
-        if self.settings.omnivoice_ref_audio is not None:
-            ref_text_path = self._required_ref_text_path()
-            ref_text = ref_text_path.read_text(encoding="utf-8").strip()
-            if not ref_text:
-                raise ValueError("TINYTALK_OMNIVOICE_REF_TEXT must contain a transcript")
-            self.voice_clone_prompt = self.tts.create_voice_clone_prompt(
-                ref_audio=str(self.settings.omnivoice_ref_audio),
-                ref_text=ref_text,
-            )
-
+        self.voice_prompts = {
+            name: self._clone_prompt(self.tts, preset) for name, preset in presets.items()
+        }
         self.loaded = True
+
+    def _reference_presets(self) -> dict[str | None, OmniVoicePreset | None]:
+        if self.voices is not None:
+            return dict(self.voices.voices)
+        audio = self.settings.omnivoice_ref_audio
+        text = self.settings.omnivoice_ref_text
+        if audio is None and text is None:
+            return {None: None}
+        if audio is None or text is None:
+            raise ValueError(
+                "TINYTALK_OMNIVOICE_REF_AUDIO and TINYTALK_OMNIVOICE_REF_TEXT "
+                "must be configured together"
+            )
+        return {None: OmniVoicePreset(ref_audio=audio, ref_text=text)}
+
+    @staticmethod
+    def _clone_prompt(model: OmniVoice, preset: OmniVoicePreset | None) -> VoiceClonePrompt | None:
+        if preset is None:
+            return None
+        transcript = preset.ref_text.read_text(encoding="utf-8").strip()
+        if not transcript:
+            raise ValueError(f"OmniVoice reference transcript is empty: {preset.ref_text}")
+        return model.create_voice_clone_prompt(ref_audio=str(preset.ref_audio), ref_text=transcript)
 
     @override
     def prepare_request(
@@ -58,11 +74,14 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         *,
         instructions: str | None,
         speed: float | None,
+        voice: str | None = None,
     ) -> SynthesisRequest:
         if speed is not None and speed <= 0:
             raise ValueError("speed must be positive")
 
-        return SynthesisRequest(instructions=instructions.strip() if instructions else None, speed=speed)
+        return SynthesisRequest(
+            instructions=instructions.strip() if instructions else None, speed=speed, voice=voice
+        )
 
     @override
     def synthesize_chunk(
@@ -76,9 +95,10 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
             raise RuntimeError("engine not loaded. Call load() first")
 
         instructions = request.instructions
+        prompt = self.voice_prompts[request.voice]
         speed = request.speed
         language = self.settings.omnivoice_language.strip() or None
-        mode = self._mode(instructions)
+        mode = self._mode(instructions, prompt)
         num_attempts = self.settings.max_retries + 1
         best_audio: AudioSamples | None = None
         best_quality: QualityResult | None = None
@@ -98,6 +118,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
                 index=index,
                 num_chunks=num_chunks,
                 mode=mode,
+                prompt=prompt,
                 instructions=instructions,
                 speed=speed,
                 language=language,
@@ -142,6 +163,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         index: int,
         num_chunks: int,
         mode: VoiceMode,
+        prompt: VoiceClonePrompt | None,
         instructions: str | None,
         speed: float | None,
         language: str | None,
@@ -150,6 +172,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         raw_audio, t_infer = self._generate_audio(
             chunk_text,
             mode=mode,
+            prompt=prompt,
             instructions=instructions,
             language=language,
             speed=speed,
@@ -185,6 +208,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         text: str,
         *,
         mode: VoiceMode,
+        prompt: VoiceClonePrompt | None,
         instructions: str | None,
         language: str | None,
         speed: float | None,
@@ -197,7 +221,7 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
         audios = self.tts.generate(
             text=text,
             language=language,
-            voice_clone_prompt=self.voice_clone_prompt if mode == "clone" else None,
+            voice_clone_prompt=prompt if mode == "clone" else None,
             instruct=instructions if mode == "design" else None,
             speed=speed,
             class_temperature=temperature,
@@ -281,27 +305,11 @@ class OmniVoiceBackend(SpeechBackend[SynthesisRequest]):
             **quality.model_dump(),
         )
 
-    def _mode(self, instructions: str | None) -> VoiceMode:
+    @staticmethod
+    def _mode(instructions: str | None, prompt: VoiceClonePrompt | None) -> VoiceMode:
         if instructions:
             return "design"
-        if self.voice_clone_prompt is not None:
+        if prompt is not None:
             return "clone"
         return "auto"
-
-    def _validate_reference_config(self) -> None:
-        has_audio = self.settings.omnivoice_ref_audio is not None
-        has_text = self.settings.omnivoice_ref_text is not None
-        if has_audio != has_text:
-            raise ValueError(
-                "TINYTALK_OMNIVOICE_REF_AUDIO and TINYTALK_OMNIVOICE_REF_TEXT "
-                "must be configured together"
-            )
-        for path in (self.settings.omnivoice_ref_audio, self.settings.omnivoice_ref_text):
-            if path is not None and not path.is_file():
-                raise ValueError(f"OmniVoice reference file does not exist: {path}")
-
-    def _required_ref_text_path(self) -> Path:
-        if self.settings.omnivoice_ref_text is None:
-            raise RuntimeError("OmniVoice reference text is not configured")
-        return self.settings.omnivoice_ref_text
 

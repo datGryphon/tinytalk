@@ -1,3 +1,4 @@
+import json
 import sys
 from types import SimpleNamespace
 
@@ -58,6 +59,26 @@ def test_native_output_and_timing(engine):
     assert result.timing.chunks[0].attempts == 1
     assert "text" not in result.timing.chunks[0].model_dump()
     assert engine.backend.tts.calls[0][1] == {"voice": "260", "normalize": False}
+
+
+def test_named_voice_ids_are_preloaded_and_selected(engine, tmp_path):
+    config = tmp_path / "voices.json"
+    config.write_text(json.dumps({
+        "backend": "silencio2", "default": "first",
+        "voices": {
+            "first": {"voice_id": "260"},
+            "second": {"voice_id": "261"},
+        },
+    }))
+    model = engine.backend.tts
+    model.voices.clear()
+    instance = SpeechEngine(backend.Silencio2Backend(Settings(backend="silencio2", voices_file=config)))
+    instance.load()
+    instance.synthesize("Hello.")
+    instance.synthesize("Hello.", voice="second")
+    instance.synthesize("Hello.")
+    assert model.voices == ["260", "261"]
+    assert [kwargs["voice"] for _, kwargs in model.calls] == ["260", "261", "260"]
 
 
 def test_restores_different_tags_in_order(engine):

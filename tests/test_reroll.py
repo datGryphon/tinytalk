@@ -5,6 +5,7 @@ scores each with _chunk_wer (WER), keeps the lowest-WER attempt, early-exits
 when wer <= wer_threshold.
 """
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +13,8 @@ import numpy as np
 import pytest
 
 from tinytalk.config import Settings
-from tinytalk.backends.neutts import NeuTTSBackend, NeuTTSRequest
+from tinytalk.backends import neutts as backend_module
+from tinytalk.backends.neutts import NeuTTSBackend, NeuTTSReference, NeuTTSRequest
 from tinytalk.engine import SpeechEngine
 from tinytalk.quality import QualityResult
 from tinytalk.timing import QualitySource
@@ -23,10 +25,9 @@ def _quality(wer: float, source: QualitySource = "confidence") -> QualityResult:
 
 
 def _make_engine(settings: Settings) -> SpeechEngine[NeuTTSRequest]:
-    """Build an engine without loading the model. Caller must set tts/ref_codes/ref_text/sample_rate."""
+    """Build an engine with a fake model and prepared reference."""
     engine = SpeechEngine(NeuTTSBackend(settings))
-    engine.backend.ref_codes = [1, 2, 3]
-    engine.backend.ref_text = "test reference"
+    engine.backend.references[None] = NeuTTSReference(codes=[1, 2, 3], text="test reference")
     engine.backend.sample_rate = 24_000
     engine.backend.loaded = True
     return engine
@@ -39,6 +40,37 @@ def _good_audio() -> np.ndarray:
     return (np.sin(np.linspace(0, 2 * np.pi * 440, dur)) * (0.08 / (1 / (2**0.5)))).astype(
         np.float32
     )
+
+
+def test_named_voices_keep_transcript_with_reference(monkeypatch, tmp_path):
+    codes = Path(__file__).parent / "voices" / "jo.pt"
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_text("First transcript.")
+    second.write_text("Second transcript.")
+    config = tmp_path / "voices.json"
+    config.write_text(json.dumps({
+        "backend": "neutts", "default": "first",
+        "voices": {
+            "first": {"ref_codes": str(codes), "ref_text": str(first)},
+            "second": {"ref_codes": str(codes), "ref_text": str(second)},
+        },
+    }))
+    model = MagicMock()
+    model.sample_rate = 24_000
+    model.infer.return_value = _good_audio()
+    factory = MagicMock(return_value=model)
+    monkeypatch.setattr(backend_module, "NeuTTS", factory)
+    engine = SpeechEngine(NeuTTSBackend(Settings(voices_file=config, max_retries=0)))
+    engine.load()
+
+    engine.synthesize("hello world test")
+    engine.synthesize("hello world test", voice="second")
+    engine.synthesize("hello world test")
+    assert [call.args[2] for call in model.infer.call_args_list] == [
+        "First transcript.", "Second transcript.", "First transcript."
+    ]
+    factory.assert_called_once()
 
 
 # ── repeat_penalty escalation ────────────────────────────────────────────────

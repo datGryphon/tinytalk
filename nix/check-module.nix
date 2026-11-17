@@ -29,6 +29,21 @@ let
   silencio2 = evaluate "silencio2" { silencio2Voice = "/var/lib/tinytalk/reference.wav"; };
   chatterboxNano = evaluate "chatterbox_nano" { chatterboxNanoRefAudio = "/var/lib/tinytalk/reference.wav"; };
   tinytauk = evaluate "tinytauk" { tinytaukProfile = profile; };
+  namedVoices = evaluate "neutts" {
+    defaultVoice = "narrator";
+    voices = {
+      narrator = {
+        refCodes = "/var/lib/tinytalk/narrator.pt";
+        refText = "/var/lib/tinytalk/narrator.txt";
+      };
+      speaker = {
+        refCodes = "/var/lib/tinytalk/speaker.pt";
+        refText = "/var/lib/tinytalk/speaker.txt";
+        maxCharsPerChunk = 90;
+        interChunkSilenceMs = 0;
+      };
+    };
+  };
 
   usesAppDirectory = service:
     service.serviceConfig.WorkingDirectory == "/var/lib/tinytalk/app"
@@ -73,4 +88,16 @@ assert lib.assertMsg (
   && lib.elem pkgs.glslang neuttsGpu.path
 ) "TinyTalk must isolate native wheel caches by NeuTTS acceleration backend";
 
-pkgs.runCommand "tinytalk-nixos-module-check" { } "touch $out"
+assert lib.assertMsg (!(neutts.environment ? TINYTALK_VOICES_FILE))
+  "Unconfigured services must not receive a voice configuration file";
+
+pkgs.runCommand "tinytalk-nixos-module-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+  jq -e '. == {
+    backend: "neutts", default: "narrator", voices: {
+      narrator: {ref_codes: "/var/lib/tinytalk/narrator.pt", ref_text: "/var/lib/tinytalk/narrator.txt"},
+      speaker: {ref_codes: "/var/lib/tinytalk/speaker.pt", ref_text: "/var/lib/tinytalk/speaker.txt",
+                max_chars_per_chunk: 90, inter_chunk_silence_ms: 0}
+    }
+  }' ${namedVoices.environment.TINYTALK_VOICES_FILE}
+  touch $out
+''

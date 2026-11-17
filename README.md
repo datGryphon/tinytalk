@@ -68,8 +68,11 @@ POST /v1/audio/speech
 ```
 
 `/v1/audio/speech` accepts OpenAI-style JSON. `response_format` may be `wav`
-(default), `mp3`, or `opus` (returned as Ogg-Opus). `model` and `voice` are
-accepted but currently ignored. `stream: true` is rejected. Long inputs are
+(default), `mp3`, or `opus` (returned as Ogg-Opus). `model` is accepted but
+ignored. With named voices configured,
+`voice` selects a preset; when omitted the configured default is used. Unknown
+voice names return HTTP 400. Without named voices, `voice` retains its legacy
+ignored behavior. `stream: true` is rejected. Long inputs are
 chunked at sentence/phrase boundaries server-side.
 
 Backend-specific controls:
@@ -112,6 +115,67 @@ behavior.
 
 Response headers include `X-TinyTalk-Backend`, `X-TinyTalk-Model`,
 `X-TinyTalk-Chunks`, `X-TinyTalk-Chunk-Chars`, and `X-TinyTalk-Format`.
+
+## Named voices
+
+A service still loads one backend/model. Named voices select static conditioning
+for that backend, not a different model. Define `TINYTALK_VOICES_FILE` as a
+path to a JSON file, or use the NixOS module options below. The file is validated
+at startup. The backend must match `TINYTALK_BACKEND`, and `default` must name
+one of the configured voices.
+
+Example for TinyTAuK:
+
+```json
+{
+  "backend": "tinytauk",
+  "default": "narrator",
+  "voices": {
+    "narrator": {"description": "A clear, natural speaking voice"},
+    "dramatic": {
+      "description": "A dramatic, expressive voice",
+      "max_chars_per_chunk": 120,
+      "inter_chunk_silence_ms": 100
+    }
+  }
+}
+```
+
+The equivalent NixOS configuration:
+
+```nix
+services.tinytalk = {
+  enable = true;
+  backend = "tinytauk";
+  defaultVoice = "narrator";
+  voices = {
+    narrator.description = "A clear, natural speaking voice";
+    dramatic = {
+      description = "A dramatic, expressive voice";
+      maxCharsPerChunk = 120;
+      interChunkSilenceMs = 100;
+    };
+  };
+};
+```
+
+Supported preset fields depend on the backend:
+
+- NeuTTS: `ref_codes` and `ref_text` (both required).
+- OmniVoice: `ref_audio` and `ref_text` (both required).
+- Silencio-2: `voice_id` (bundled ID or reference-audio path).
+- Chatterbox Nano: `ref_audio` (required).
+- TinyTAuK: `description` (optional; request `instructions` take precedence).
+
+All backends support optional `max_chars_per_chunk` and
+`inter_chunk_silence_ms` per voice. Nix uses camelCase names as in the
+example. Reference files must be readable by the `tinytalk` service user.
+The JSON configuration contains reference *paths*, not the audio contents.
+Model loading remains single-instance; reference conditioning is prepared at
+startup where supported. Named voices replace the service's single-reference
+settings. OmniVoice request `instructions` still select voice-design mode
+instead of cloning; TinyTAuK request `instructions` override the preset
+description. No runtime enrollment is provided.
 
 ## NixOS module
 
@@ -217,6 +281,8 @@ Key options:
 | Option | Default | Notes |
 | --- | --- | --- |
 | `backend` | `neutts` | `neutts`, `tinytauk`, `omnivoice`, `silencio2`, or `chatterbox_nano` |
+| `voices` | `{}` | Static named voice presets for the selected backend |
+| `defaultVoice` | `null` | Required default name when `voices` is nonempty |
 | `maxCharsPerChunk` | `180` | Max chars per synthesis call |
 | `interChunkSilenceMs` | `60` | Silence between chunks |
 | `maxRetries` | `2` | Quality-gated retries per chunk |
@@ -239,8 +305,8 @@ Key options:
 | `omnivoiceRefAudio` | `null` | Optional clone reference audio |
 | `omnivoiceRefText` | `null` | Transcript file for clone reference |
 
-NeuTTS reference files are required only for NeuTTS. Generate `ref_codes.pt` from
-a WAV with `scripts/encode_reference.py`.
+NeuTTS requires reference files for either its single configured voice or each
+named voice. Generate `ref_codes.pt` from a WAV with `scripts/encode_reference.py`.
 
 TinyTAuK v0.2.0 downloads the configured AuK-Flash/Qwen checkpoints through
 Hugging Face on first startup. TinyTalk performs one disposable warmup generation
@@ -315,7 +381,8 @@ WER/CER transcription path also needs validation. Artifacts are written under
 Select `TINYTALK_BACKEND=silencio2` in the shared environment.
 `TINYTALK_SILENCIO2_VOICE` selects an upstream bundled ID (default `260`) or a
 local reference-audio path. NixOS exposes `services.tinytalk.silencio2Voice`.
-The configured voice is encoded at startup and reused; HTTP `voice` is ignored.
+Without named voices, this configured voice is encoded at startup and reused.
+With named voices, each preset's `voice_id` is prepared and selected by HTTP `voice`.
 
 TinyTalk loads the original `silencio2` Python package directly from the pinned
 Hugging Face snapshot `20930f5f6a6bb564f2a8207152fd5c5d8eecff03`. Upstream does
@@ -342,7 +409,8 @@ MIT. Retain upstream attribution and notices when redistributing model assets:
 Select `TINYTALK_BACKEND=chatterbox_nano` in the shared environment. The optional
 `TINYTALK_CHATTERBOX_NANO_REF_AUDIO` (`services.tinytalk.chatterboxNanoRefAudio`)
 selects a local reference clip longer than five seconds. With no reference,
-upstream's bundled conditioning is used. HTTP `voice` is ignored.
+upstream's bundled conditioning is used. With named voices, each preset's
+`ref_audio` is prepared once and selected by HTTP `voice`.
 
 TinyTalk pins upstream Chatterbox source to
 `ab55923c27757c90cfcc407baa57dc25a7d25217`; the released 0.1.7 wheel lacks

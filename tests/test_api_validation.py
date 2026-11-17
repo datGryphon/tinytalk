@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -11,19 +10,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tinytalk import server
+from tinytalk.backends.neutts import NeuTTSBackend, NeuTTSReference, NeuTTSRequest
 from tinytalk.config import Settings
 from tinytalk.engine import SpeechEngine, SynthesisResult
 from tinytalk.timing import AttemptTiming, ChunkTiming, RequestTiming
-
-if TYPE_CHECKING:
-    from tinytalk.backends.neutts import NeuTTSRequest
-
 
 class FakeEngine:
     loaded = True
     last_text = None
 
-    def synthesize(self, text, *, instructions=None, speed=None):
+    def synthesize(self, text, *, instructions=None, speed=None, voice=None):
         self.last_text = text
         return SynthesisResult(
             audio=np.zeros(2400, dtype=np.float32),
@@ -159,7 +155,7 @@ class FakeEngineTiming:
     last_audio: np.ndarray | None = None
     last_sample_rate: int | None = None
 
-    def synthesize(self, text, *, instructions=None, speed=None):
+    def synthesize(self, text, *, instructions=None, speed=None, voice=None):
         audio = np.zeros(2400, dtype=np.float32)
         self.last_audio = audio
         self.last_sample_rate = 24_000
@@ -242,11 +238,8 @@ def _real_engine_with_fake_tts() -> SpeechEngine[NeuTTSRequest]:
         wer_threshold=1.0,  # accept the first good attempt
         max_retries=0,
     )
-    from tinytalk.backends.neutts import NeuTTSBackend
-
     engine = SpeechEngine(NeuTTSBackend(settings))
-    engine.backend.ref_codes = [1, 2, 3]
-    engine.backend.ref_text = "test reference"
+    engine.backend.references[None] = NeuTTSReference(codes=[1, 2, 3], text="test reference")
     engine.backend.sample_rate = 24_000
     engine.backend.tts = MagicMock()
     engine.backend.tts.infer = MagicMock(return_value=_good_audio())
@@ -298,7 +291,7 @@ def test_synthesis_failure_logs_error_without_input(monkeypatch, caplog):
     class FailingSynthEngine:
         loaded = True
 
-        def synthesize(self, text, *, instructions=None, speed=None):
+        def synthesize(self, text, *, instructions=None, speed=None, voice=None):
             raise RuntimeError(f"boom involving {text!r}")
 
         def load(self):
@@ -334,7 +327,7 @@ def test_encoding_failure_logs_error_without_input(monkeypatch, caplog):
     class OkSynthEngine:
         loaded = True
 
-        def synthesize(self, text, *, instructions=None, speed=None):
+        def synthesize(self, text, *, instructions=None, speed=None, voice=None):
             return SynthesisResult(
                 audio=np.zeros(2400, dtype=np.float32),
                 sample_rate=24_000,

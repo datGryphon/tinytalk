@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -101,6 +102,30 @@ def _engine(**overrides):
     engine.backend.sample_rate = 24_000
     engine.backend.loaded = True
     return engine
+
+
+def test_named_description_and_request_instruction_precedence(monkeypatch, tmp_path):
+    config = tmp_path / "voices.json"
+    config.write_text(json.dumps({
+        "backend": "tinytauk", "default": "first",
+        "voices": {
+            "first": {"description": "First speaker"},
+            "second": {"description": "Second speaker"},
+        },
+    }))
+    engine = _engine(voices_file=config)
+    monkeypatch.setattr(backend_module, "evaluate_audio", lambda *args, **kwargs: _quality(wer=0.0))
+    engine.synthesize("Hello.")
+    engine.synthesize("Hello.", voice="second")
+    engine.synthesize("Hello.", voice="second", instructions="Override")
+    engine.synthesize("Hello.")
+    calls = engine.backend.tts.condition_calls
+    assert [call.instruction for call in calls] == [
+        'Based on the following description: "First speaker", generate speech content "Hello.".',
+        'Based on the following description: "Second speaker", generate speech content "Hello.".',
+        'Based on the following description: "Override", generate speech content "Hello.".',
+        'Based on the following description: "First speaker", generate speech content "Hello.".',
+    ]
 
 
 def _quality(
