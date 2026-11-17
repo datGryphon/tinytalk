@@ -120,14 +120,13 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
         index: int,
         num_chunks: int,
     ) -> ChunkResult:
-        reference = (
-            self.voice_references[request.voice.ref_codes]
-            if request.voice is not None and request.voice.ref_codes is not None
-            else (self.ref_codes, self.ref_text)
-        )
-        wav, timing, fallbacks = self._synthesize_chunk(
-            chunk_text, index, num_chunks, reference=reference
-        )
+        if request.voice is not None and request.voice.ref_codes is not None:
+            reference = self.voice_references[request.voice.ref_codes]
+            wav, timing, fallbacks = self._synthesize_chunk(
+                chunk_text, index, num_chunks, reference=reference
+            )
+        else:
+            wav, timing, fallbacks = self._synthesize_chunk(chunk_text, index, num_chunks)
         f0_start = time.perf_counter()
         if request.previous_f0_mean is not None:
             wav = normalize_f0(wav, self.sample_rate, request.previous_f0_mean)
