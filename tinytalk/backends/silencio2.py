@@ -53,7 +53,16 @@ class Silencio2Backend(SpeechBackend[SynthesisRequest]):
         self.tts = silencio2.Silencio2TTS.from_pretrained(snapshot, device="cpu")
         self.sample_rate = int(self.tts.sample_rate)
 
-        self.tts.voice(self.settings.silencio2_voice)
+        if self.settings.voices_file is None:
+            self.tts.voice(self.settings.silencio2_voice)
+        else:
+            from ..config import load_voice_config
+
+            voices = load_voice_config(self.settings)
+            if voices is not None:
+                for preset in voices.voices.values():
+                    if preset.voice_id is not None:
+                        self.tts.voice(preset.voice_id)
         self.loaded = True
 
     @override
@@ -73,9 +82,9 @@ class Silencio2Backend(SpeechBackend[SynthesisRequest]):
         return SynthesisRequest(instructions=None, speed=None)
 
     @override
-    def prepare_chunks(self, text: str) -> list[str]:
+    def prepare_chunks(self, text: str, max_chars_per_chunk: int | None = None) -> list[str]:
         self._validate_tags(text)
-        chunks = split_tagged_text(text, self.settings.max_chars_per_chunk)
+        chunks = split_tagged_text(text, max_chars_per_chunk or self.settings.max_chars_per_chunk)
         return self._carry_emotions(chunks)
 
     def _validate_tags(self, text: str) -> None:
@@ -111,7 +120,9 @@ class Silencio2Backend(SpeechBackend[SynthesisRequest]):
 
         start = time.perf_counter()
         wav = self.tts.generate(
-            chunk_text, voice=self.settings.silencio2_voice, normalize=False
+            chunk_text,
+            voice=(request.voice.voice_id if request.voice is not None else self.settings.silencio2_voice),
+            normalize=False
         )
         t_infer = time.perf_counter() - start
 
