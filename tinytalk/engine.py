@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from .audio import AudioSamples, silence
 from .chunking import split_text
-from .config import Settings
+from .config import Settings, VoiceConfig, VoicePreset, load_voice_config
 from .quality import transcribe_chunk
 from .timing import ChunkTiming, RequestTiming
 
@@ -39,6 +39,7 @@ class SynthesisRequest(BaseModel):
 
     instructions: str | None
     speed: float | None
+    voice: VoicePreset | None = None
 
 
 class SpeechBackend[RequestT: SynthesisRequest](ABC):
@@ -64,8 +65,8 @@ class SpeechBackend[RequestT: SynthesisRequest](ABC):
         speed: float | None,
     ) -> RequestT: ...
 
-    def prepare_chunks(self, text: str) -> list[str]:
-        return split_text(text, self.settings.max_chars_per_chunk)
+    def prepare_chunks(self, text: str, max_chars_per_chunk: int | None = None) -> list[str]:
+        return split_text(text, max_chars_per_chunk or self.settings.max_chars_per_chunk)
 
     @abstractmethod
     def synthesize_chunk(
@@ -82,9 +83,11 @@ class SpeechBackend[RequestT: SynthesisRequest](ABC):
 
 class SpeechEngine[RequestT: SynthesisRequest]:
     backend: SpeechBackend[RequestT]
+    voices: VoiceConfig | None
 
     def __init__(self, backend: SpeechBackend[RequestT]) -> None:
         self.backend = backend
+        self.voices = load_voice_config(backend.settings)
 
     @property
     def settings(self) -> Settings:
@@ -105,24 +108,41 @@ class SpeechEngine[RequestT: SynthesisRequest]:
     def load(self) -> None:
         self.backend.load()
 
+    def resolve_voice(self, name: str | None) -> VoicePreset | None:
+        if self.voices is None:
+            return None  # Legacy deployments ignore the API voice field.
+        selected = name if name is not None else self.voices.default
+        try:
+            return self.voices.voices[selected]
+        except KeyError as exc:
+            raise ValueError(f"unknown voice: {selected}") from exc
+
     def synthesize(
         self,
         text: str,
         *,
         instructions: str | None = None,
         speed: float | None = None,
+        voice: str | None = None,
     ) -> SynthesisResult:
         if not self.loaded:
             raise RuntimeError("engine not loaded. Call load() first")
+        preset = self.resolve_voice(voice)
         request = self.backend.prepare_request(instructions=instructions, speed=speed)
+        request.voice = preset
         try:
-            chunks = self.backend.prepare_chunks(text)
+            max_chars = preset.max_chars_per_chunk if preset else None
+            chunks = self.backend.prepare_chunks(text, max_chars)
             if not chunks:
                 raise ValueError("cannot synthesize empty text")
             parts: list[AudioSamples] = []
             chunk_timings: list[ChunkTiming] = []
             wer_fallbacks = 0
-            silence_ms = self.settings.inter_chunk_silence_ms
+            silence_ms = (
+                preset.inter_chunk_silence_ms
+                if preset and preset.inter_chunk_silence_ms is not None
+                else self.settings.inter_chunk_silence_ms
+            )
 
             for index, chunk in enumerate(chunks):
                 wav, timing, fallbacks = self.backend.synthesize_chunk(
