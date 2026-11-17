@@ -87,3 +87,26 @@ def test_per_voice_silence_does_not_leak(tmp_path):
     normal = engine.synthesize(text, voice="narrator")
     assert len(normal.audio) >= len(silent.audio)
     assert engine.settings.inter_chunk_silence_ms == 60
+
+
+def test_api_selects_default_and_rejects_unknown(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from tinytalk import server
+
+    backend = FakeBackend(voice_settings(tmp_path))
+    monkeypatch.setattr(server, "engine", SpeechEngine(backend))
+    with TestClient(server.app) as client:
+        response = client.post("/v1/audio/speech", json={"input": "Hello."})
+        assert response.status_code == 200
+        assert backend.seen[-1] == "clear"
+
+        response = client.post(
+            "/v1/audio/speech", json={"input": "Hello.", "voice": "dramatic"}
+        )
+        assert response.status_code == 200
+        assert backend.seen[-1] == "dramatic"
+
+        response = client.post(
+            "/v1/audio/speech", json={"input": "Hello.", "voice": "missing"}
+        )
+        assert response.status_code == 400
