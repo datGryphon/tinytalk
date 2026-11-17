@@ -132,7 +132,11 @@ class SpeechEngine[RequestT: SynthesisRequest]:
         request.voice = preset
         try:
             max_chars = preset.max_chars_per_chunk if preset else None
-            chunks = self.backend.prepare_chunks(text, max_chars)
+            chunks = (
+                self.backend.prepare_chunks(text, max_chars)
+                if max_chars is not None
+                else self.backend.prepare_chunks(text)
+            )
             if not chunks:
                 raise ValueError("cannot synthesize empty text")
             parts: list[AudioSamples] = []
