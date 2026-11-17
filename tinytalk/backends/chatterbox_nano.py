@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import override
 
 import numpy as np
-from chatterbox.tts_turbo import ChatterboxTurboTTS
+from chatterbox.tts_turbo import ChatterboxTurboTTS, Conditionals
 
 from ..chunking import split_tagged_text
 from ..config import Settings
@@ -14,10 +15,14 @@ from ..timing import ChunkTiming
 
 class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
     tts: ChatterboxTurboTTS | None
+    default_conditionals: Conditionals | None
+    voice_conditionals: dict[Path, Conditionals]
 
     def __init__(self, settings: Settings) -> None:
         super().__init__(settings, "ResembleAI/chatterbox-nano")
         self.tts = None
+        self.default_conditionals = None
+        self.voice_conditionals = {}
 
     @override
     def load(self) -> None:
@@ -30,6 +35,22 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
         if reference is not None:
             # Preserve reference level and avoid upstream's normalization dtype promotion.
             model.prepare_conditionals(str(reference), exaggeration=0.0, norm_loudness=False)
+        self.default_conditionals = model.conds
+        if self.settings.voices_file is not None:
+            from ..config import load_voice_config
+
+            voices = load_voice_config(self.settings)
+            if voices is not None:
+                for preset in voices.voices.values():
+                    if preset.ref_audio is None or not preset.ref_audio.is_file():
+                        raise ValueError("Chatterbox Nano named reference audio does not exist")
+                    model.prepare_conditionals(
+                        str(preset.ref_audio), exaggeration=0.0, norm_loudness=False
+                    )
+                    if model.conds is None:
+                        raise RuntimeError("Chatterbox Nano did not prepare conditioning")
+                    self.voice_conditionals[preset.ref_audio] = model.conds
+            model.conds = self.default_conditionals
         self.tts = model
         self.sample_rate = int(model.sr)
         self.loaded = True
@@ -48,8 +69,8 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
         return SynthesisRequest(instructions=None, speed=None)
 
     @override
-    def prepare_chunks(self, text: str) -> list[str]:
-        return split_tagged_text(text, self.settings.max_chars_per_chunk)
+    def prepare_chunks(self, text: str, max_chars_per_chunk: int | None = None) -> list[str]:
+        return split_tagged_text(text, max_chars_per_chunk or self.settings.max_chars_per_chunk)
 
     @override
     def synthesize_chunk(
@@ -61,6 +82,8 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
     ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
+        if request.voice is not None and request.voice.ref_audio is not None:
+            self.tts.conds = self.voice_conditionals[request.voice.ref_audio]
         start = time.perf_counter()
         audio = self.tts.generate(chunk_text).detach().cpu().numpy().astype(np.float32).reshape(-1)
         timing = ChunkTiming(
@@ -71,3 +94,8 @@ class ChatterboxNanoBackend(SpeechBackend[SynthesisRequest]):
             status="accepted",
         )
         return audio, timing, 0
+
+    @override
+    def finalize_request(self, request: SynthesisRequest) -> None:
+        if self.tts is not None and self.settings.voices_file is not None:
+            self.tts.conds = self.default_conditionals
