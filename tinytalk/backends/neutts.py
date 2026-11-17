@@ -31,29 +31,33 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
     tts: NeuTTS | None
     ref_codes: list[int] | None
     ref_text: str | None
+    voice_references: dict[Path, tuple[list[int], str]]
 
     def __init__(self, settings: Settings) -> None:
         super().__init__(settings, settings.model)
         self.tts = None
         self.ref_codes = None
         self.ref_text = None
+        self.voice_references = {}
 
     @override
     def load(self) -> None:
-        self._validate_reference_files()
+        if self.settings.voices_file is None:
+            self._validate_reference_files()
+            self.ref_codes, self.ref_text = self._read_reference(
+                self.settings.ref_codes, self.settings.ref_text
+            )
+        else:
+            from ..config import load_voice_config
 
-        self.ref_codes = (
-            torch.load(self.settings.ref_codes, map_location="cpu")
-            .detach()
-            .cpu()
-            .flatten()
-            .to(torch.long)
-            .tolist()
-        )
-        self.ref_text = self.settings.ref_text.read_text(encoding="utf-8").strip()
-
-        if not self.ref_text:
-            raise RuntimeError(f"reference text is empty: {self.settings.ref_text}")
+            voices = load_voice_config(self.settings)
+            if voices is not None:
+                for preset in voices.voices.values():
+                    if preset.ref_codes is None or preset.ref_text is None:
+                        raise ValueError("NeuTTS voice requires reference codes and text")
+                    self.voice_references[preset.ref_codes] = self._read_reference(
+                        preset.ref_codes, preset.ref_text
+                    )
 
         self.tts = NeuTTS(
             backbone_repo=self.settings.model,
@@ -116,7 +120,14 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
         index: int,
         num_chunks: int,
     ) -> ChunkResult:
-        wav, timing, fallbacks = self._synthesize_chunk(chunk_text, index, num_chunks)
+        reference = (
+            self.voice_references[request.voice.ref_codes]
+            if request.voice is not None and request.voice.ref_codes is not None
+            else (self.ref_codes, self.ref_text)
+        )
+        wav, timing, fallbacks = self._synthesize_chunk(
+            chunk_text, index, num_chunks, reference=reference
+        )
         f0_start = time.perf_counter()
         if request.previous_f0_mean is not None:
             wav = normalize_f0(wav, self.sample_rate, request.previous_f0_mean)
@@ -136,6 +147,8 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
         chunk_text: str,
         index: int,
         num_chunks: int,
+        *,
+        reference: tuple[list[int] | None, str | None] | None = None,
     ) -> ChunkResult:
         if self.tts is None:
             raise RuntimeError("engine not loaded. Call load() first")
@@ -164,7 +177,7 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
             try:
                 infer_start = time.perf_counter()
                 try:
-                    raw = self.tts.infer(chunk_text, self.ref_codes, self.ref_text)
+                    raw = self.tts.infer(chunk_text, *(reference or (self.ref_codes, self.ref_text)))
                 finally:
                     t_infer = time.perf_counter() - infer_start
 
@@ -253,3 +266,17 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
         ):
             if not Path(path).is_file():
                 raise RuntimeError(f"{path_name} does not exist: {path}")
+
+    @staticmethod
+    def _read_reference(codes_path: Path, text_path: Path) -> tuple[list[int], str]:
+        for path in (codes_path, text_path):
+            if not path.is_file():
+                raise ValueError(f"NeuTTS reference file does not exist: {path}")
+        codes = (
+            torch.load(codes_path, map_location="cpu")
+            .detach().cpu().flatten().to(torch.long).tolist()
+        )
+        text = text_path.read_text(encoding="utf-8").strip()
+        if not text:
+            raise ValueError(f"reference text is empty: {text_path}")
+        return codes, text
