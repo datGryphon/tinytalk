@@ -42,20 +42,17 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
 
     @override
     def load(self) -> None:
-        if self.settings.voices_file is None:
+        if self.voices is None:
             self._validate_reference_files()
             self.ref_codes, self.ref_text = self._read_reference(
                 self.settings.ref_codes, self.settings.ref_text
             )
         else:
-            voices = self.voices
-            if voices is not None:
-                for preset in voices.voices.values():
-                    if preset.ref_codes is None or preset.ref_text is None:
-                        raise ValueError("NeuTTS voice requires reference codes and text")
-                    self.voice_references[preset.ref_codes] = self._read_reference(
-                        preset.ref_codes, preset.ref_text
-                    )
+            for preset in self.voices.voices.values():
+                assert preset.ref_codes is not None and preset.ref_text is not None
+                self.voice_references[preset.ref_codes] = self._read_reference(
+                    preset.ref_codes, preset.ref_text
+                )
 
         self.tts = NeuTTS(
             backbone_repo=self.settings.model,
