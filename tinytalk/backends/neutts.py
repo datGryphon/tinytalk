@@ -16,7 +16,7 @@ from ..audio import (
     peak_limit,
     trim_edge_silence,
 )
-from ..config import Settings, load_voice_config
+from ..config import Settings
 from ..engine import ChunkResult, SpeechBackend, SynthesisRequest
 from ..quality import QualityResult, evaluate_audio, quality_is_acceptable, quality_rank
 from ..timing import AttemptStatus, AttemptTiming, ChunkTiming, QualityTiming
@@ -48,7 +48,7 @@ class NeuTTSBackend(SpeechBackend[NeuTTSRequest]):
                 self.settings.ref_codes, self.settings.ref_text
             )
         else:
-            voices = load_voice_config(self.settings)
+            voices = self.voices
             if voices is not None:
                 for preset in voices.voices.values():
                     if preset.ref_codes is None or preset.ref_text is None:
