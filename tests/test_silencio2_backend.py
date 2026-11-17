@@ -36,7 +36,6 @@ def engine(monkeypatch, tmp_path):
         return model
 
     module = SimpleNamespace(
-        __file__=str(tmp_path / "silencio2/__init__.py"),
         EMOTIONS=("whisper", "happy", "sad"), SOUNDS=("laugh", "sigh", "clear_throat"),
         Silencio2TTS=SimpleNamespace(from_pretrained=load),
     )

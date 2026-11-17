@@ -3,8 +3,6 @@ from __future__ import annotations
 import re
 import sys
 import time
-from pathlib import Path
-from types import ModuleType
 from typing import TYPE_CHECKING, override
 
 import numpy as np
@@ -25,20 +23,6 @@ _TAGS_RE = re.compile(r"\[[^\]]*\]|<[^>]*>")
 _EMOTION_RE = re.compile(r"<([^\s<>]+)>")
 
 
-def _assert_snapshot_owned(silencio2_module: ModuleType, snapshot_path: Path) -> None:
-    filename = getattr(silencio2_module, "__file__", None)
-    if not filename:
-        raise RuntimeError("silencio2 has no verifiable snapshot origin")
-    module_file = Path(filename)
-    try:
-        module_file.absolute().parent.relative_to(snapshot_path)
-    except ValueError:
-        raise RuntimeError(
-            "silencio2 loaded from outside the pinned snapshot; a conflicting "
-            "installation shadows it"
-        ) from None
-
-
 class Silencio2Backend(SpeechBackend[SynthesisRequest]):
     tts: Silencio2TTS | None
     _emotions: tuple[str, ...]
@@ -56,19 +40,17 @@ class Silencio2Backend(SpeechBackend[SynthesisRequest]):
             return
 
         snapshot = snapshot_download(repo_id=_REPO_ID, revision=_REVISION)
-        snapshot_path = Path(snapshot).resolve()
         # Upstream ships its package without Python distribution metadata.
-        sys.path.insert(0, str(snapshot_path))
+        sys.path.insert(0, snapshot)
         try:
             import silencio2
         finally:
-            sys.path.remove(str(snapshot_path))
+            sys.path.remove(snapshot)
 
-        _assert_snapshot_owned(silencio2, snapshot_path)
         self._emotions = tuple(silencio2.EMOTIONS)
         self._sounds = tuple(silencio2.SOUNDS)
 
-        self.tts = silencio2.Silencio2TTS.from_pretrained(str(snapshot_path), device="cpu")
+        self.tts = silencio2.Silencio2TTS.from_pretrained(snapshot, device="cpu")
         self.sample_rate = int(self.tts.sample_rate)
 
         self.tts.voice(self.settings.silencio2_voice)
