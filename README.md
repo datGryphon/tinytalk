@@ -28,8 +28,10 @@ own upstream terms; TinyTalk's license does not grant rights to those models.
 | **NeuTTS** | [`neuphonic/neutts-nano-q4-gguf`](https://huggingface.co/neuphonic/neutts-nano-q4-gguf) + [`neuphonic/neucodec-onnx-decoder-int8`](https://huggingface.co/neuphonic/neucodec-onnx-decoder-int8) | The default Nano Q4 model repo is gated and currently reports `license: other`; review its bundled `LICENCE` before deployment. The default INT8 NeuCodec repo is Apache-2.0 and also gated. Other selectable NeuTTS checkpoints can differ; for example, [`neuphonic/neutts-air-q4-gguf`](https://huggingface.co/neuphonic/neutts-air-q4-gguf) currently reports Apache-2.0. |
 | **TinyTAuK** | [`tencent/AuK-Flash`](https://huggingface.co/tencent/AuK-Flash) + [`Qwen/Qwen2.5-Omni-3B`](https://huggingface.co/Qwen/Qwen2.5-Omni-3B) | AuK-Flash is MIT-licensed. The default Qwen conditioner uses the [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-Omni-3B/blob/main/LICENSE), which grants non-commercial use only unless you obtain a separate commercial license from Alibaba Cloud. |
 | **OmniVoice** | [`k2-fsa/OmniVoice`](https://huggingface.co/k2-fsa/OmniVoice) | OmniVoice code is Apache-2.0, while the published pretrained weights are CC-BY-NC/non-commercial. |
+| **Silencio-2** | [`BlueRoseLabs/Silencio-2`](https://huggingface.co/BlueRoseLabs/Silencio-2) | Model weights are CC-BY-4.0; the Pocket TTS core code is MIT. Retain upstream attribution and consult the [upstream NOTICE](https://huggingface.co/BlueRoseLabs/Silencio-2/blob/main/NOTICE.md). |
+| **Chatterbox Nano** | [`ResembleAI/chatterbox-nano`](https://huggingface.co/ResembleAI/chatterbox-nano) | Model weights and [Chatterbox code](https://github.com/resemble-ai/chatterbox/blob/ab55923c27757c90cfcc407baa57dc25a7d25217/LICENSE) are MIT-licensed; retain upstream notices. |
 
-These notes describe the default model IDs in this repository as of September
+These notes describe the default model IDs in this repository as of November
 2026. If you point TinyTalk at different checkpoints or a custom TinyTAuK
 profile, check the licenses for the complete model stack you actually deploy.
 
